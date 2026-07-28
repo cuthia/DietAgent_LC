@@ -1,0 +1,18 @@
+# 向量嵌入配置
+embedding:
+  model: BAAI/bge-small-zh-v1.5
+  device: cpu
+  max_length: 512 # 最大的输入长度，超过部分会被截断，单位为token
+  local_path: "" # 本地模型路径，优先于model名加载；如 ./models/bge-small-zh-v1.5
+  hf_endpoint: "https://hf-mirror.com" # HuggingFace镜像地址，解决国内访问问题
+  offline: false # 离线模式，仅从本地加载模型
+
+# 向量库配置
+vector_store:
+  type: chroma  # 可切换 chroma / milvus
+  chroma:
+    persist_dir: ./data/chroma
+  milvus:
+    host: localhost
+    port: 19530
+    collection_name: diet_knowledge
