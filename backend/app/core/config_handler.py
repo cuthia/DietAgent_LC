@@ -68,22 +68,22 @@ class VectorStoreConfig(BaseModel):
     milvus: MilvusConfig = MilvusConfig()
 
 
-'''
-暂未实现的配置
-
+# LLM配置
 class LLMConfig(BaseModel):
-    type: str = "qwen"
-    api_key: str = ""
-    base_url: str = ""
-    model: str = ""
+    type: str = Field(description="LLM类型(deepseek/qwen/openai)", default="deepseek")
+    api_key: str = Field(description="API密钥(使用环境变量占位)", default="")
+    base_url: str = Field(description="API基础URL", default="https://api.deepseek.com")
+    model: str = Field(description="模型名称", default="deepseek-chat")
+    temperature: float = Field(description="生成温度(0-1)", default=0.7)
+    max_tokens: int = Field(description="最大token数量", default=4096)
 
 
+# Redis配置
 class RedisConfig(BaseModel):
-    host: str = "localhost"
-    port: int = 6379
-    db: int = 0
-
-'''
+    host: str = Field(description="Redis主机地址", default="localhost")
+    port: int = Field(description="Redis端口", default=6379)
+    db: int = Field(description="Redis数据库编号", default=0)
+    password: str = Field(description="Redis密码", default="")
 
 # 全局配置类，将各种配置类对象实例化，从而属性就赋入默认值
 class Settings(BaseModel):
@@ -94,8 +94,8 @@ class Settings(BaseModel):
     embedding: EmbeddingConfig = EmbeddingConfig()
     vector_store: VectorStoreConfig = VectorStoreConfig()
     database: DatabaseConfig = DatabaseConfig()
-    # llm: LLMConfig = LLMConfig()
-    # redis: RedisConfig = RedisConfig()
+    llm: LLMConfig = LLMConfig()
+    redis: RedisConfig = RedisConfig()
     
 
 class ConfigHandler:

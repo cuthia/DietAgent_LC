@@ -16,3 +16,19 @@ vector_store:
     host: localhost
     port: 19530
     collection_name: diet_knowledge
+
+# LLM配置
+llm:
+  type: deepseek  # deepseek / qwen / openai
+  api_key: "${LLM_API_KEY}"  # 使用环境变量占位符
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+  temperature: 0.7
+  max_tokens: 4096
+
+# Redis配置
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+  password: ""
