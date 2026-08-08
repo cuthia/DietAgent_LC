@@ -11,14 +11,22 @@
 - 长期记忆：用户偏好、历史方案等（用于个性化服务）
 """
 
-import logging
 import json
 import time
 from typing import List, Dict, Any, Optional
+
+from langchain_classic.memory import ConversationBufferMemory
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
-# 日志记录器
-logger = logging.getLogger(__name__)
+# 日志记录器（使用项目统一的 loguru logger，避免标准 logging -> loguru 脱节导致日志丢失）
+try:
+    from core.logger import logger
+except (ImportError, Exception):
+    try:
+        from loguru import logger  # noqa: F811
+    except ImportError:
+        import logging
+        logger = logging.getLogger(__name__)
 
 
 # ========== 消息序列化工具 ==========
@@ -90,7 +98,7 @@ class InMemoryStore:
     def get_conversation(
         self, 
         user_id: int, 
-        session_id: str = "default",
+        session_id: Optional[str] = None,
         max_messages: int = 20
     ) -> List[Dict[str, Any]]:
         """
@@ -98,16 +106,33 @@ class InMemoryStore:
         
         参数：
             user_id: 用户ID
-            session_id: 会话ID
+            session_id: 会话ID；为 None 时返回该用户全部会话
             max_messages: 最大消息数量（最近N条）
         
         返回：
             对话历史列表
         """
-        key = f"{user_id}:{session_id}"
-        messages = self._conversations.get(key, [])
-        # 返回最近的N条消息
-        return messages[-max_messages:]
+        if session_id:
+            key = f"{user_id}:{session_id}"
+            messages = self._conversations.get(key, [])
+            return [self._with_session(m, session_id) for m in messages[-max_messages:]]
+
+        # 返回全部会话并按时间合并
+        prefix = f"{user_id}:"
+        all_messages = []
+        for key, messages in self._conversations.items():
+            if key.startswith(prefix):
+                sid = key[len(prefix):]
+                all_messages.extend(self._with_session(m, sid) for m in messages)
+        all_messages.sort(key=lambda m: m.get("timestamp") or 0)
+        return all_messages[-max_messages:]
+
+    @staticmethod
+    def _with_session(message: Dict[str, Any], session_id: str) -> Dict[str, Any]:
+        """返回带 session_id 的消息副本，避免污染存储中的原始消息。"""
+        item = dict(message)
+        item["session_id"] = session_id
+        return item
     
     def add_message(
         self, 
@@ -246,7 +271,8 @@ class RedisMemory:
         self, 
         host: str = "localhost", 
         port: int = 6379, 
-        db: int = 0
+        db: int = 0,
+        password: str = ""
     ):
         """
         初始化Redis连接（预留实现）
@@ -255,35 +281,74 @@ class RedisMemory:
             host: Redis主机
             port: Redis端口
             db: Redis数据库编号
+            password: Redis密码（空字符串表示无密码）
         """
         self._host = host
         self._port = port
         self._db = db
+        self._password = password
         self._client = None
-        logger.info(f"RedisMemory初始化: {host}:{port}/{db}")
+        auth_info = "有密码" if password else "无密码"
+        logger.info(f"RedisMemory初始化: host={host}, port={port}, db={db}, {auth_info}")
     
     def _get_client(self):
-        """获取Redis客户端（延迟初始化）"""
+        """获取Redis客户端（延迟初始化）；首次连接时输出详细诊断日志"""
         if self._client is None:
             try:
                 import redis
-                self._client = redis.Redis(
+                # 连接参数（无密码时不传 password，避免部分老 Redis 报 AUTH 错误）
+                conn_kwargs = dict(
                     host=self._host,
                     port=self._port,
                     db=self._db,
-                    decode_responses=True
+                    decode_responses=True,
+                    socket_connect_timeout=2,
+                    socket_timeout=2,
+                    protocol=2
                 )
-                logger.info("Redis连接成功")
-            except ImportError:
-                logger.warning("redis库未安装，回退到内存存储")
+                if self._password:
+                    conn_kwargs["password"] = self._password
+                self._client = redis.Redis(**conn_kwargs)
+                # PING 校验连通性
+                pong = self._client.ping()
+                # 尝试获取 Redis 服务端信息（版本等），失败不影响主流程
+                server_info = {}
+                try:
+                    server_info = self._client.info("server") or {}
+                except Exception:
+                    server_info = {}
+                redis_version = server_info.get("redis_version", "unknown")
+                redis_mode = server_info.get("redis_mode", "unknown")
+                os_info = server_info.get("os", "unknown")
+                logger.info(
+                    "Redis连接成功: PING={} | {}:{}/{} | version={} | mode={} | os={}".format(
+                        pong, self._host, self._port, self._db,
+                        redis_version, redis_mode, os_info
+                    )
+                )
+            except ImportError as e:
+                logger.warning("redis库未安装(ImportError: {})，回退到内存存储".format(e))
                 self._fallback = InMemoryStore()
+                self._client = None
+                return None
+            except Exception as e:
+                logger.warning("Redis连接失败: {}:{} ({})，回退到内存存储. 异常: {}".format(
+                    self._host, self._port, type(e).__name__, e
+                ))
+                self._fallback = InMemoryStore()
+                self._client = None
                 return None
         return self._client
+
+    def is_available(self) -> bool:
+        """检查Redis是否可用"""
+        client = self._get_client()
+        return client is not None
     
     def get_conversation(
         self, 
         user_id: int, 
-        session_id: str = "default",
+        session_id: Optional[str] = None,
         max_messages: int = 20
     ) -> List[Dict[str, Any]]:
         """获取对话历史"""
@@ -291,11 +356,26 @@ class RedisMemory:
         if client is None:
             return self._fallback.get_conversation(user_id, session_id, max_messages)
         
-        key = f"conversation:{user_id}:{session_id}"
         try:
-            # 使用Redis List存储对话历史
-            raw_messages = client.lrange(key, -max_messages, -1)
-            return [json.loads(msg) for msg in raw_messages]
+            if session_id:
+                key = f"conversation:{user_id}:{session_id}"
+                raw_messages = client.lrange(key, -max_messages, -1)
+                messages = [json.loads(msg) for msg in raw_messages]
+                for msg in messages:
+                    msg["session_id"] = session_id
+                return messages
+
+            all_messages = []
+            pattern = f"conversation:{user_id}:*"
+            for key in client.keys(pattern):
+                sid = key.rsplit(":", 1)[-1]
+                raw_messages = client.lrange(key, -max_messages, -1)
+                for raw in raw_messages:
+                    msg = json.loads(raw)
+                    msg["session_id"] = sid
+                    all_messages.append(msg)
+            all_messages.sort(key=lambda m: m.get("timestamp") or 0)
+            return all_messages[-max_messages:]
         except Exception as e:
             logger.error(f"Redis读取对话历史失败: {e}")
             return []
@@ -458,21 +538,38 @@ class MemoryManager:
             from core.config_handler import get_settings
             settings = get_settings()
             
-            # 检查是否配置了Redis
             redis_config = getattr(settings, 'redis', None)
-            if redis_config and redis_config.host != "localhost":
-                self._store = RedisMemory(
-                    host=redis_config.host,
-                    port=redis_config.port,
-                    db=redis_config.db
+            if redis_config:
+                logger.info(
+                    "MemoryManager: 检测到Redis配置 -> host={}, port={}, db={}".format(
+                        getattr(redis_config, 'host', 'localhost'),
+                        getattr(redis_config, 'port', 6379),
+                        getattr(redis_config, 'db', 0)
+                    )
                 )
-                logger.info("MemoryManager: 使用Redis存储")
+                redis_store = RedisMemory(
+                    host=getattr(redis_config, 'host', 'localhost'),
+                    port=getattr(redis_config, 'port', 6379),
+                    db=getattr(redis_config, 'db', 0),
+                    password=getattr(redis_config, 'password', '') or ''
+                )
+                if redis_store.is_available():
+                    self._store = redis_store
+                    logger.info(
+                        "MemoryManager: [OK] 使用Redis存储 {}:{}".format(
+                            getattr(redis_config, 'host', 'localhost'),
+                            getattr(redis_config, 'port', 6379)
+                        )
+                    )
+                else:
+                    self._store = InMemoryStore()
+                    logger.warning("MemoryManager: [FALLBACK] Redis不可用，回退到内存存储（对话历史/膳食方案不会跨进程持久化）")
             else:
                 self._store = InMemoryStore()
-                logger.info("MemoryManager: 使用内存存储（开发模式）")
-        except Exception:
+                logger.info("MemoryManager: 未配置Redis，使用内存存储")
+        except Exception as e:
+            logger.warning("MemoryManager: Redis初始化异常({})，回退到内存存储".format(e))
             self._store = InMemoryStore()
-            logger.info("MemoryManager: 使用内存存储（默认模式）")
         
         self._initialized = True
     
@@ -481,10 +578,10 @@ class MemoryManager:
     def get_conversation(
         self, 
         user_id: int, 
-        session_id: str = "default",
+        session_id: Optional[str] = None,
         max_messages: int = 20
     ) -> List[Dict[str, Any]]:
-        """获取用户会话的对话历史"""
+        """获取用户会话的对话历史；session_id 为 None 时返回全部会话"""
         return self._store.get_conversation(user_id, session_id, max_messages)
     
     def add_message(
@@ -643,7 +740,6 @@ def save_interaction(
 
 
 # ======================== 文件内自测脚本 ========================
-# 运行方式：在 backend/app 目录下执行  python -m agent.memory
 if __name__ == "__main__":
     print("=" * 60)
     print("MemoryManager 自测开始")

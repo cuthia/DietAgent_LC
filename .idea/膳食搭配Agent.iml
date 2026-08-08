@@ -5,7 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/backend/app" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/frontend" isTestSource="false" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.11 (膳食搭配Agent)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Python 3.11 (DietAgent_LC)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

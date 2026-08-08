@@ -71,29 +71,72 @@ class EmbeddingModel:
     def __new__(cls, model_name: str = "BAAI/bge-small-zh-v1.5",
                 device: str = "cpu", local_path: str = "",
                 hf_endpoint: str = "https://hf-mirror.com",
-                offline: bool = False):
-        """单例创建：相同参数返回同一实例"""
+                offline: bool = False,
+                # 兼容别名：其他模块可能错误地使用 model=... 传参
+                model: str = None,
+                **_unused_kwargs):
+        """
+        单例创建：相同参数返回同一实例。
+
+        兼容两种写法：
+          - EmbeddingModel(model_name="BAAI/bge-small-zh-v1.5")  # 推荐
+          - EmbeddingModel(model="BAAI/bge-small-zh-v1.5")       # 别名兼容
+        同时忽略其他未识别关键字参数（而不是抛错），避免第三方库间接口不一致。
+        """
+        # 别名解析：model 存在时作为 model_name 使用（model_name 显式传的优先级更高）
+        if model_name in (None, "", "BAAI/bge-small-zh-v1.5") and model:
+            model_name = model
         cache_key = f"{model_name}_{device}_{local_path}_{hf_endpoint}_{offline}"
         if cache_key not in cls._model_cache:
             cls._model_cache[cache_key] = super().__new__(cls)
-        return cls._model_cache[cache_key]
+        instance = cls._model_cache[cache_key]
+        # 把解析后的参数存到实例缓存键上，供 __init__ 使用（只在首次创建时有效）
+        if not hasattr(instance, '_init_kwargs'):
+            instance._init_kwargs = dict(
+                model_name=model_name,
+                device=device,
+                local_path=local_path,
+                hf_endpoint=hf_endpoint,
+                offline=offline,
+            )
+        return instance
 
     def __init__(self, model_name: str = "BAAI/bge-small-zh-v1.5",
                  device: str = "cpu", local_path: str = "",
                  hf_endpoint: str = "https://hf-mirror.com",
-                 offline: bool = False):
-        """初始化模型配置（仅首次创建实例时执行）"""
+                 offline: bool = False,
+                 model: str = None,
+                 **_unused_kwargs):
+        """
+        初始化模型配置（仅首次创建实例时执行）。
+
+        参数解析优先级：
+          1) 若实例已通过 __new__ 写入 _init_kwargs（含别名解析），使用 _init_kwargs；
+          2) 否则回退为显式传入参数（model_name 优先，否则用别名 model）。
+        """
         if hasattr(self, '_initialized'):
             return
 
-        self.model_name = model_name
-        self.device = device
+        kwargs = getattr(self, '_init_kwargs', None)
+        if kwargs is None:
+            if not model_name and model:
+                model_name = model
+            kwargs = dict(
+                model_name=model_name or "BAAI/bge-small-zh-v1.5",
+                device=device,
+                local_path=local_path,
+                hf_endpoint=hf_endpoint,
+                offline=offline,
+            )
+
+        self.model_name = kwargs["model_name"] or "BAAI/bge-small-zh-v1.5"
+        self.device = kwargs["device"] or "cpu"
         # local_path 优先级：函数参数 > 环境变量 BGE_LOCAL_PATH > 项目默认路径
-        self.local_path = (local_path
+        self.local_path = (kwargs.get("local_path")
                            or os.environ.get("BGE_LOCAL_PATH")
-                           or get_default_local_model_path(model_name))
-        self.hf_endpoint = hf_endpoint
-        self.offline = offline
+                           or get_default_local_model_path(self.model_name))
+        self.hf_endpoint = kwargs.get("hf_endpoint") or "https://hf-mirror.com"
+        self.offline = bool(kwargs.get("offline", False))
 
         self._initialized = True
         self._model = None          # SentenceTransformer 实例（Mock 模式下为 None）

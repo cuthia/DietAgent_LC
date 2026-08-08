@@ -366,16 +366,21 @@ class KnowledgeService:
             # 获取总文档数
             total_count = self.vector_store.count()
 
-            # 获取类别统计（需要查询向量库中的所有文档）
-            # 这里简化处理，返回总文档数
-            # 在实际应用中，可以通过查询向量库的metadata来获取类别统计
+            # 通过文档列表聚合类别统计
             category_counts = {}
+            documents = self.vector_store.list_documents(limit=500) if hasattr(
+                self.vector_store, "list_documents"
+            ) else []
+            for doc in documents:
+                category = doc.get("category", "未分类")
+                category_counts[category] = category_counts.get(category, 0) + 1
 
             return {
                 "success": True,
                 "message": "获取统计信息成功",
                 "total_count": total_count,
-                "category_counts": category_counts
+                "category_counts": category_counts,
+                "doc_count": len(documents)
             }
 
         except Exception as e:
@@ -385,6 +390,36 @@ class KnowledgeService:
                 "message": f"获取统计信息失败: {str(e)}",
                 "total_count": 0,
                 "category_counts": {}
+            }
+
+    def get_documents(self, limit: int = 500) -> Dict[str, Any]:
+        """
+        获取知识库文档列表（按文件聚合）
+
+        参数：
+            limit: 最多返回的文档数
+
+        返回：
+            文档列表响应字典
+        """
+        logger.info("获取知识库文档列表")
+        try:
+            documents = self.vector_store.list_documents(limit=limit) if hasattr(
+                self.vector_store, "list_documents"
+            ) else []
+            return {
+                "success": True,
+                "message": "获取文档列表成功",
+                "documents": documents,
+                "total": len(documents)
+            }
+        except Exception as e:
+            logger.error(f"获取知识库文档列表失败: {e}")
+            return {
+                "success": False,
+                "message": f"获取文档列表失败: {str(e)}",
+                "documents": [],
+                "total": 0
             }
 
 

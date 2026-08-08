@@ -17,7 +17,8 @@ Agent API路由 - 膳食搭配Agent的RESTful接口
 import asyncio
 import json
 import logging
-from fastapi import APIRouter, HTTPException, Request
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from schemas.agent_schema import (
@@ -29,6 +30,7 @@ from schemas.agent_schema import (
     DietHistoryResponse,
     ValidatePlanRequest,
     ValidationResult,
+    SaveDietPlanRequest,
     BaseResponse,
     ErrorResponse,
     chat_response_from_result
@@ -296,7 +298,8 @@ async def update_user_profile(user_id: int, updates: UserProfileUpdate):
 )
 async def get_chat_history(
     user_id: int, 
-    max_messages: int = 20
+    max_messages: int = 20,
+    session_id: Optional[str] = Query(None, description="会话ID，为空时返回全部会话")
 ):
     """
     获取对话历史
@@ -305,13 +308,18 @@ async def get_chat_history(
     """
     try:
         service = await _get_service()
-        history = await service.get_chat_history(user_id, max_messages)
+        history = await service.get_chat_history(
+            user_id,
+            max_messages=max_messages,
+            session_id=session_id
+        )
         
         messages = [
             {
                 "role": msg.get("role", ""),
                 "content": msg.get("content", ""),
-                "timestamp": msg.get("timestamp")
+                "timestamp": msg.get("timestamp"),
+                "session_id": msg.get("session_id") or session_id or "default"
             }
             for msg in history
         ]
@@ -323,6 +331,35 @@ async def get_chat_history(
         
     except Exception as e:
         logger.error(f"获取对话历史异常: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=ErrorResponse(success=False, message=str(e)).model_dump()
+        )
+
+
+@router.post(
+    "/user/{user_id}/diet-history",
+    response_model=BaseResponse,
+    summary="保存膳食方案到历史",
+    description="前端在用户点击保存方案时手动把方案写入历史"
+)
+async def save_diet_plan(
+    user_id: int,
+    request: SaveDietPlanRequest
+):
+    """
+    保存膳食方案
+    """
+    try:
+        service = await _get_service()
+        result = await service.save_diet_plan(user_id, request.plan)
+        return BaseResponse(
+            success=True,
+            message=result.get("message", "膳食方案已保存"),
+            data={"user_id": user_id}
+        )
+    except Exception as e:
+        logger.error(f"保存膳食方案异常: {e}")
         raise HTTPException(
             status_code=500,
             detail=ErrorResponse(success=False, message=str(e)).model_dump()

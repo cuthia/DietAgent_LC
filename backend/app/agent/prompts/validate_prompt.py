@@ -17,28 +17,31 @@ VALIDATE_DIET_PROMPT = ChatPromptTemplate.from_messages([
     ("system", """你是一位专业的膳食方案审核员，请检查生成的膳食方案是否符合用户的健康要求。
 
 ## 校验要点
-1. **食材合规性**：检查是否有用户忌口或慢病禁忌食材
-2. **营养均衡性**：检查蛋白质、碳水、脂肪的比例是否合理
-3. **热量合理性**：检查总热量是否符合用户需求
-4. **食物多样性**：检查食材是否过于单一
-5. **烹饪健康性**：检查烹饪方式是否健康
+1. 食材合规性：检查是否有用户忌口或慢病禁忌食材
+2. 营养均衡性：检查蛋白质、碳水、脂肪的比例是否合理
+3. 热量合理性：检查总热量是否符合用户需求
+4. 食物多样性：检查食材是否过于单一
+5. 烹饪健康性：检查烹饪方式是否健康
 
 ## 输出格式
 请用JSON格式返回校验结果：
-{
-  "passed": true/false,
+
+```json
+{{
+  "passed": true,
   "issues": [
-    {
-      "type": "forbidden_food" | "nutrition" | "calories" | "variety",
-      "severity": "high" | "medium" | "low",
+    {{
+      "type": "forbidden_food",
+      "severity": "high",
       "description": "问题描述",
       "suggestion": "修正建议"
-    }
+    }}
   ],
-  "overall_score": 1-10,
+  "overall_score": 8,
   "summary": "整体评价"
-}"""),
-    
+}}
+```"""),
+
     ("human", """## 待校验膳食方案
 {diet_plan}
 
@@ -74,16 +77,19 @@ NUTRITION_EVALUATION_PROMPT = ChatPromptTemplate.from_messages([
 - 膳食纤维：25-30克
 
 ## 输出格式
-{
-  "calories": {"status": "ok"|"low"|"high", "detail": "..."},
-  "protein": {"status": "ok"|"low"|"high", "detail": "..."},
-  "carbs": {"status": "ok"|"low"|"high", "detail": "..."},
-  "fat": {"status": "ok"|"low"|"high", "detail": "..."},
-  "fiber": {"status": "ok"|"low"|"high", "detail": "..."},
-  "overall_balance": "excellent"|"good"|"fair"|"poor",
+
+```json
+{{
+  "calories": {{"status": "ok", "detail": "热量符合要求"}},
+  "protein": {{"status": "ok", "detail": "蛋白质充足"}},
+  "carbs": {{"status": "ok", "detail": "碳水合理"}},
+  "fat": {{"status": "ok", "detail": "脂肪含量适中"}},
+  "fiber": {{"status": "ok", "detail": "膳食纤维充足"}},
+  "overall_balance": "good",
   "recommendations": ["建议1", "建议2"]
-}"""),
-    
+}}
+```"""),
+
     ("human", """## 膳食方案
 {diet_plan}
 
@@ -170,29 +176,89 @@ def build_validation_rules(user_profile: dict) -> str:
 
 def format_diet_plan_summary(diet_plan: dict) -> str:
     """
-    格式化膳食方案摘要
-    
-    参数：
-        diet_plan: 膳食方案字典
-    
-    返回：
-        摘要文本
+    格式化膳食方案摘要（兼容单日与多天 days[] 结构）
+
+    渲染规则（针对 Markdown -> HTML 折叠单换行的特点做了双保险）：
+    - 段落之间统一用 2 个换行（\n\n）分隔，保证在 breaks:false 的 marked 下也分段；
+    - 段内条目不追加；
+    - 同时前端可开启 breaks:true，二者兼容。
     """
-    lines = []
-    
-    total_cal = diet_plan.get("total_calories", 0)
-    lines.append(f"📊 **总热量**：约 {total_cal} 千卡")
-    
-    meals = {"breakfast": "🌅 早餐", "lunch": "☀️ 午餐", "dinner": "🌙 晚餐", "snack": "🍎 加餐"}
-    for meal_key, meal_name in meals.items():
-        meal_data = diet_plan.get(meal_key, {})
-        if meal_data:
+    lines = []  # 这里的每个元素都是一个"段落块"，最终用 \n\n join
+
+    plan_name = diet_plan.get("plan_name", "")
+    days = diet_plan.get("days") or []
+
+    # 头部：方案名 + 热量概览（一个段落）
+    header_parts = []
+    if plan_name:
+        header_parts.append(f"🍱 **{plan_name}**")
+    if days:
+        avg_cal = diet_plan.get("avg_daily_calories") or diet_plan.get("total_calories") or 0
+        weekly_cal = diet_plan.get("weekly_total_calories")
+        sub = [f"📊 **生成天数**：{len(days)}天"]
+        if avg_cal:
+            sub.append(f"日均 ≈ {avg_cal} 千卡")
+        if weekly_cal and len(days) >= 7:
+            sub.append(f"周合计 ≈ {weekly_cal} 千卡")
+        header_parts.append("｜".join(sub))
+    else:
+        total_cal = diet_plan.get("total_calories", 0)
+        header_parts.append(f"📊 **总热量**：约 {total_cal} 千卡")
+    if header_parts:
+        lines.append("  \n".join(header_parts))  # 行尾双空格硬换行，保证一定两行显示
+
+    meals_map = {"breakfast": "🌅 早餐", "lunch": "☀️ 午餐", "dinner": "🌙 晚餐", "snack": "🍎 加餐"}
+
+    # 多日：days[] 逐天展示（每一天作为独立大段落）
+    if days:
+        for day in days:
+            if not isinstance(day, dict):
+                continue
+            label = day.get("day_label") or f"第{day.get('day_num', '?')}天"
+            day_cal = day.get("day_total_calories", 0)
+            # 一天的内部内容：每餐独立一段，保证换行
+            day_blocks = []
+            day_blocks.append(f"### {label} （约 {day_cal} 千卡）")
+            for meal_key, meal_name in meals_map.items():
+                meal_data = day.get(meal_key) or {}
+                if not meal_data:
+                    continue
+                items = meal_data.get("items", [])
+                cal = meal_data.get("total_calories", 0)
+                item_names = "、".join([str(it.get("name", "")) for it in items if isinstance(it, dict)])
+                if not item_names:
+                    continue
+                # 段内单独一行，换行独立
+                day_blocks.append(f"- **{meal_name}**：{item_names}（约 {cal} 千卡）")
+            note = day.get("day_note")
+            if note:
+                day_blocks.append(f"- 📌 {note}")
+            # 只要日标题就渲染（哪怕当天三餐不全/只有标题），防止 LLM 返回某些 day 无食材时被吞掉
+            if len(day_blocks) >= 1:
+                lines.append("\n".join(day_blocks))
+    else:
+        # 单日：顶层结构（每餐一段）
+        for meal_key, meal_name in meals_map.items():
+            meal_data = diet_plan.get(meal_key, {})
+            if not meal_data:
+                continue
             items = meal_data.get("items", [])
             cal = meal_data.get("total_calories", 0)
-            item_names = "、".join([item.get("name", "") for item in items])
-            lines.append(f"\n{meal_name}：{item_names}（约 {cal} 千卡）")
-    
-    return "\n".join(lines)
+            item_names = "、".join([str(item.get("name", "")) for item in items if isinstance(item, dict)])
+            if item_names:
+                lines.append(f"- **{meal_name}**：{item_names}（约 {cal} 千卡）")
+
+    tips = diet_plan.get("health_tips") or []
+    if tips:
+        tip_block = "💡 **健康小贴士**  \n" + "\n".join([f"- {t}" for t in tips[:5]])
+        lines.append(tip_block)
+
+    disc = diet_plan.get("disclaimer")
+    if disc:
+        lines.append(f"⚠️ {disc}")
+
+    # 段落之间空一行，marked 会自动生成 <p>...</p> 独立段落
+    return "\n\n".join([ln for ln in lines if ln])
 
 
 # ======================== 文件内自测脚本 ========================

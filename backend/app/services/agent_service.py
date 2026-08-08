@@ -237,7 +237,9 @@ class AgentService:
         """
         try:
             result = await update_user_info(user_id, updates)
-            return result
+            if result:
+                return {"success": True, "message": "用户档案更新成功", "data": updates}
+            return {"success": False, "error": "用户档案更新失败"}
         except Exception as e:
             logger.error(f"[AgentService] 更新用户档案失败: {e}")
             return {"success": False, "error": str(e)}
@@ -247,7 +249,8 @@ class AgentService:
     async def get_chat_history(
         self, 
         user_id: int, 
-        max_messages: int = 20
+        max_messages: int = 20,
+        session_id: Optional[str] = None
     ) -> list:
         """
         获取用户的对话历史
@@ -262,7 +265,24 @@ class AgentService:
         if not self._memory:
             self._memory = MemoryManager()
         
-        return self._memory.get_conversation(user_id, max_messages=max_messages)
+        return self._memory.get_conversation(
+            user_id,
+            session_id=session_id,
+            max_messages=max_messages
+        )
+
+    async def save_diet_plan(
+        self,
+        user_id: int,
+        diet_plan: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        手动保存一份膳食方案到历史
+        """
+        if not self._memory:
+            self._memory = MemoryManager()
+        self._memory.save_diet_plan(user_id, diet_plan)
+        return {"success": True, "message": "膳食方案已保存"}
     
     async def get_diet_history(
         self, 

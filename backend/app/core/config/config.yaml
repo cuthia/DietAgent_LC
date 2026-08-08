@@ -20,11 +20,12 @@ vector_store:
 # LLM配置
 llm:
   type: deepseek  # deepseek / qwen / openai
-  api_key: "${LLM_API_KEY}"  # 使用环境变量占位符
+  api_key: "sk-081fd7f56c4344d5becbac33f1c787fb"  # 使用环境变量占位符
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   temperature: 0.7
-  max_tokens: 4096
+  max_tokens: 8192  # 输出 token 上限：7天食谱JSON较长，4096易被截断
+  timeout: 180      # 请求超时(秒)：生成长JSON需要60~120s，30s会触发重试+超时
 
 # Redis配置
 redis:

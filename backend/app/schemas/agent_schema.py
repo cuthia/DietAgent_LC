@@ -96,6 +96,13 @@ class ValidatePlanRequest(BaseModel):
     diet_plan: Dict[str, Any] = Field(..., description="待校验的膳食方案")
 
 
+class SaveDietPlanRequest(BaseModel):
+    """
+    手动保存膳食方案请求
+    """
+    plan: Dict[str, Any] = Field(..., description="待保存的膳食方案")
+
+
 # ========== 响应Schema ==========
 
 class DietItem(BaseModel):

@@ -70,14 +70,30 @@ async def login(user_data: UserLoginRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/profile", response_model=ApiResponse[UserProfileResponse])
-def get_profile(current_user: User = Depends(get_current_user)):
+async def get_profile(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
     """
     获取当前用户健康档案
     依赖：get_current_user: 自动验证登录状态
     """
-    # 从用户对象获取关联的健康档案
-    profile = current_user.profile
-    
+    from sqlalchemy import select
+    from db.models.user import UserProfile
+
+    # 显式查询健康档案（避免 relationship lazy-load 在同步函数中出错）
+    result = await db.execute(
+        select(UserProfile).where(UserProfile.user_id == current_user.id)
+    )
+    profile = result.scalar_one_or_none()
+
+    # 如果档案不存在，创建一条空档案并持久化，保证后续查询总能拿到实体
+    if not profile:
+        profile = UserProfile(user_id=current_user.id)
+        db.add(profile)
+        await db.commit()
+        await db.refresh(profile)
+
     # 返回健康档案信息
     return ApiResponse[UserProfileResponse](data=UserProfileResponse.model_validate(profile))
 

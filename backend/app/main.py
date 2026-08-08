@@ -6,7 +6,7 @@ FastAPI 应用入口模块
 2. 中间件注册（CORS）
 3. 异常处理器注册
 4. API路由注册
-5. 启动事件（数据库初始化）
+5. 启动事件（数据库初始化、MemoryManager/Redis预热）
 6. 健康检查接口
 """
 
@@ -31,6 +31,33 @@ async def lifespan(app: FastAPI):
     # 启动时执行（对应原来的 startup）
     await init_db()
     logger.info("数据库初始化完成")
+
+    # 主动初始化 MemoryManager，让 Redis 连接状态在启动阶段就输出日志
+    try:
+        from agent.memory import MemoryManager
+        mm = MemoryManager()
+        # 读取真实存储类型，输出更清晰的状态
+        store_type = type(mm._store).__name__
+        if isinstance(mm._store, MemoryManager) or True:
+            logger.info(f"MemoryManager 预热完成: 当前存储 = {store_type}")
+        # 尝试写/读一个启动自检 key，验证 Redis 真正可用
+        try:
+            from agent.memory import RedisMemory
+            if isinstance(mm._store, RedisMemory) and mm._store.is_available():
+                client = mm._store._get_client()
+                if client:
+                    boot_key = "dietagent:boot:ping"
+                    client.setex(boot_key, 60, "ok")
+                    got = client.get(boot_key)
+                    if got == "ok":
+                        logger.info(f"Redis 读写自检通过 ({boot_key}=ok, TTL=60s)")
+                    else:
+                        logger.warning(f"Redis 读写自检异常: 读回值={got!r}")
+        except Exception as e:
+            logger.warning(f"Redis 启动读写自检失败（不影响服务启动）: {e}")
+    except Exception as e:
+        logger.warning(f"MemoryManager 预热失败（不影响服务启动）: {e}")
+
     logger.info(f"服务启动成功，环境：{settings.env}，端口：{settings.server.port}")
     
     yield  # ← 这里分开：上面是启动，下面是关闭
@@ -40,7 +67,6 @@ async def lifespan(app: FastAPI):
     # 可以在这里关闭数据库连接池、释放资源等
     # 例如await db.close()'''
     
-
 
 
 def create_app() -> FastAPI:
@@ -79,11 +105,20 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
 
 
-    # TODO: 健康检查接口（用于容器化部署时的健康探测）
+    # 健康检查接口（用于容器化部署时的健康探测）
     @app.get("/health", summary="健康检查")
     async def health_check():
-        """健康检查接口，返回服务状态"""
-        return {"status": "ok", "env": settings.env}
+        """健康检查接口，返回服务状态+Redis连接状态"""
+        # 内存中快速返回 MemoryManager 状态
+        memory_status = {"store": None, "redis": False}
+        try:
+            from agent.memory import MemoryManager, RedisMemory
+            mm = MemoryManager()
+            memory_status["store"] = type(mm._store).__name__
+            memory_status["redis"] = isinstance(mm._store, RedisMemory) and mm._store.is_available()
+        except Exception as e:
+            memory_status["error"] = str(e)
+        return {"status": "ok", "env": settings.env, "memory": memory_status}
 
     return app
 

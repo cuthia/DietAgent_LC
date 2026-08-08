@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DietAgent · AI 膳食顾问</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" />
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+<script>tailwind.config={theme:{extend:{colors:{sidebar:{800:'#1F1F1F',700:'#2A2A2A',600:'#383838'},userbubble:'#F2F3F5'},fontFamily:{sans:['-apple-system','BlinkMacSystemFont','"PingFang SC"','"Microsoft YaHei"','"Helvetica Neue"','Arial','sans-serif']}}}}</script>
+<style>
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#D7D8DC;border-radius:3px}::-webkit-scrollbar-thumb:hover{background:#BFBFC1}.sidebar-scroll::-webkit-scrollbar-thumb{background:#3F3F46}
+.md-body{font-size:15px;line-height:1.75;color:#1F2329;word-break:break-word}.md-body>*+*{margin-top:0.95em}.md-body h1,.md-body h2,.md-body h3,.md-body h4{color:#111827;font-weight:600;line-height:1.35}.md-body h1{font-size:22px}.md-body h2{font-size:19px}.md-body h3{font-size:16.5px;padding:8px 12px;border-radius:10px;background:linear-gradient(90deg,#FFF7E6 0%,#FFF 100%);border:1px solid #FFE7BA;color:#8A4B00;margin-top:1.15em!important;margin-bottom:.25em}.md-body h4{font-size:15px}.md-body ul,.md-body ol{padding-left:1.45em;margin:.3em 0}.md-body ul{list-style:disc}.md-body ol{list-style:decimal}.md-body li{line-height:1.85;margin:.18em 0}.md-body blockquote{margin:.7em 0;padding:6px 14px;border-left:3px solid #E5E6EB;background:#FAFAFB;color:#4E5969;border-radius:0 10px 10px 0}
+.md-body :not(pre)>code{background:#F2F3F5;color:#D45B2B;font-size:13.5px;padding:2px 6px;border-radius:6px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.md-body pre{position:relative;border-radius:12px;background:#F6F8FA;border:1px solid #E8EAED;overflow:hidden;margin:14px 0}.md-body pre code{font-size:13.5px;line-height:1.65;padding:16px 18px;display:block;overflow-x:auto;background:transparent!important;color:#1F2329}
+.code-copy-btn{position:absolute;top:8px;right:10px;font-size:12px;color:#86909C;padding:4px 10px;border-radius:8px;background:rgba(255,255,255,.85);border:1px solid #E5E6EB;cursor:pointer;transition:all .15s ease;opacity:.35}.md-body pre:hover .code-copy-btn{opacity:1}.code-copy-btn:hover{color:#1D2129;border-color:#C9CDD4}
+.msg-actions{visibility:hidden;opacity:0;transition:all .15s ease}.msg-wrap:hover .msg-actions{visibility:visible;opacity:1}
+.typing-cursor{display:inline-block;width:2px;height:1em;vertical-align:-2px;background:#111827;margin-left:2px;animation:blink 1s steps(1) infinite}@keyframes blink{50%{opacity:0}}
+.sidebar-trans{transition:width .18s ease}textarea::placeholder{color:#9CA3AF}
+.modal-bg{background:rgba(0,0,0,.45);backdrop-filter:blur(4px)}.tab-active{border-bottom:2px solid #111827;color:#111827;font-weight:500}
+.toast{animation:slideUp .3s ease,fadeOut .3s ease 2.2s forwards}@keyframes slideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}@keyframes fadeOut{to{opacity:0;transform:translateY(-10px)}}
+.diet-card{border:1px solid #E5E6EB;border-radius:14px;background:#FCFCFD;padding:16px 18px;margin-top:14px}.diet-card h4{font-size:14px;font-weight:600;color:#111827;margin-bottom:8px;display:flex;align-items:center;gap:6px}.diet-card .meal-item{display:flex;justify-content:space-between;padding:4px 0;font-size:13.5px;color:#4E5969}.diet-card .meal-item .name{color:#1F2329}
+</style>
+</head>
+<body class="bg-white text-[15px] font-sans antialiased">
+<div class="flex h-screen w-screen overflow-hidden">
+  <aside id="sidebar" class="sidebar-trans w-[260px] bg-sidebar-800 text-slate-100 shrink-0 flex flex-col h-full">
+    <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-700/80 shrink-0">
+      <div class="flex items-center gap-2 overflow-hidden">
+        <div class="shrink-0 w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-sm">D</div>
+        <span class="sb-text font-semibold text-[15px] whitespace-nowrap">DietAgent</span>
+      </div>
+      <button id="btn-collapse" class="shrink-0 w-8 h-8 rounded-lg hover:bg-sidebar-700 flex items-center justify-center text-slate-300 hover:text-white transition"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+    </div>
+    <div id="nav-tabs" class="hidden px-3 pt-3 shrink-0">
+      <div class="flex gap-1">
+        <button data-view="chat" class="nav-tab flex-1 h-8 rounded-lg text-[13px] bg-sidebar-700/60 text-white flex items-center justify-center gap-1"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="sb-text truncate">对话</span></button>
+        <button data-view="profile" class="nav-tab flex-1 h-8 rounded-lg text-[13px] text-slate-300 hover:bg-sidebar-700/50 flex items-center justify-center gap-1"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span class="sb-text truncate">档案</span></button>
+        <button data-view="knowledge" class="nav-tab flex-1 h-8 rounded-lg text-[13px] text-slate-300 hover:bg-sidebar-700/50 flex items-center justify-center gap-1"><svg class="w-[14px] h-[14px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg><span class="sb-text truncate">知识库</span></button>
+      </div>
+    </div>
+    <div id="chat-section" class="p-3 shrink-0">
+      <button id="btn-new-chat" class="w-full h-10 rounded-xl bg-sidebar-700 hover:bg-sidebar-600 border border-sidebar-600/60 flex items-center justify-center gap-2 transition"><svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg><span class="sb-text text-[14px] whitespace-nowrap">新建对话</span></button>
+    </div>
+    <nav id="history-list" class="sidebar-scroll flex-1 overflow-y-auto px-2 pb-4 space-y-1"></nav>
+    <div class="p-3 border-t border-sidebar-700/80 shrink-0">
+      <div id="user-bar" class="flex items-center gap-2 w-full">
+        <div id="user-avatar" class="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-white text-sm font-medium flex items-center justify-center">U</div>
+        <div class="flex-1 min-w-0">
+          <div id="user-name" class="sb-text text-[14px] whitespace-nowrap truncate">未登录</div>
+          <div id="user-sub" class="sb-text text-[11px] text-slate-400 whitespace-nowrap truncate">请先登录</div>
+        </div>
+        <button id="btn-logout" class="hidden h-7 px-2 rounded-md text-[12px] text-slate-400 hover:text-white hover:bg-sidebar-700/50 transition shrink-0">退出</button>
+        <button id="btn-login-sidebar" class="h-7 px-3 rounded-md text-[12px] bg-sidebar-700 hover:bg-sidebar-600 text-white transition shrink-0">登录</button>
+      </div>
+    </div>
+  </aside>
+  <button id="btn-expand" class="hidden fixed top-[14px] left-3 z-30 w-9 h-9 rounded-lg bg-white shadow-sm border border-gray-100 hover:bg-gray-50 items-center justify-center text-slate-500"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+  <main class="flex-1 flex flex-col h-full min-w-0 bg-white">
+    <header class="h-14 border-b border-gray-100 flex items-center justify-between px-5 shrink-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <button id="btn-toggle" class="md:hidden w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-500"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+        <div id="chat-title" class="text-[15px] font-medium text-gray-900 truncate">新对话</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <div id="conn-status" class="hidden items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full bg-gray-50 text-gray-500 border border-gray-200"><span id="conn-dot" class="w-1.5 h-1.5 rounded-full bg-gray-400"></span><span id="conn-text">检查中</span></div>
+      </div>
+    </header>
+    <div id="view-chat" class="view flex-1 flex flex-col min-h-0">
+      <section id="chat-scroll" class="flex-1 overflow-y-auto bg-white">
+        <div class="max-w-[820px] mx-auto w-full px-4 md:px-10 py-8 md:py-12">
+          <div id="welcome" class="py-10 md:py-24 text-center">
+            <div class="mx-auto w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white font-bold text-2xl shadow-sm mb-5">D</div>
+            <h1 class="text-[26px] md:text-[30px] font-semibold text-gray-900 tracking-tight">今天想聊点什么？</h1>
+            <p class="mt-3 text-[14.5px] text-gray-500">AI 膳食顾问 · 对接真实后端</p>
+            <div class="mt-10 grid grid-cols-1 md:grid-cols-2 gap-3 text-left max-w-[640px] mx-auto">
+              <button class="suggest-card rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 p-4 transition text-left"><div class="text-[14px] font-medium text-gray-900">生成今日减脂餐</div><div class="text-[12.5px] text-gray-500 mt-1">三餐+加餐方案</div></button>
+              <button class="suggest-card rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 p-4 transition text-left"><div class="text-[14px] font-medium text-gray-900">糖尿病能吃南瓜吗？</div><div class="text-[12.5px] text-gray-500 mt-1">营养成分 + 建议摄入量</div></button>
+              <button class="suggest-card rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 p-4 transition text-left"><div class="text-[14px] font-medium text-gray-900">给我一周减脂食谱</div><div class="text-[12.5px] text-gray-500 mt-1">七天不重样</div></button>
+              <button class="suggest-card rounded-2xl border border-gray-100 hover:border-gray-200 hover:bg-gray-50 p-4 transition text-left"><div class="text-[14px] font-medium text-gray-900">高蛋白饮食怎么搭</div><div class="text-[12.5px] text-gray-500 mt-1">食材搭配建议</div></button>
+            </div>
+          </div>
+          <div id="messages" class="space-y-6"></div>
+        </div>
+      </section>
+      <footer class="shrink-0 px-4 md:px-10 pb-4 md:pb-6 pt-3 bg-white">
+        <div class="max-w-[820px] mx-auto">
+          <div class="border border-gray-200 rounded-2xl shadow-[0_2px_16px_rgba(0,0,0,0.04)] bg-white transition focus-within:border-amber-400/70 focus-within:shadow-[0_0_0_3px_rgba(251,191,36,0.12)]">
+            <div class="px-3 pt-2 pb-2">
+              <textarea id="input" rows="1" placeholder="给 DietAgent 发送消息（Enter 发送 / Shift+Enter 换行）" class="w-full resize-none bg-transparent outline-none text-[15px] leading-[1.6] text-gray-900 placeholder:text-gray-400 max-h-[200px] overflow-y-auto" style="min-height:28px"></textarea>
+            </div>
+            <div class="flex items-center justify-between px-3 pb-3">
+              <div class="text-[11.5px] text-gray-400 select-none hidden sm:block">内容由 AI 生成，仅供参考</div>
+              <div class="flex items-center gap-2">
+                <button id="btn-stop" class="hidden h-9 px-3 rounded-xl text-[13px] font-medium bg-gray-100 hover:bg-gray-200 text-gray-700 transition">停止</button>
+                <button id="btn-send" class="h-9 px-4 rounded-xl text-white text-[14px] font-medium bg-[#111827] hover:bg-[#1F2937] transition disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center gap-1.5"><span>发送</span><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+    <div id="view-profile" class="view hidden flex-1 overflow-y-auto">
+      <div class="max-w-[680px] mx-auto w-full px-4 md:px-10 py-8">
+        <div class="mb-6"><h2 class="text-[20px] font-semibold text-gray-900">我的健康档案</h2><p class="text-[13px] text-gray-500 mt-1">完善档案，AI 能给出更精准的膳食建议</p></div>
+        <form id="profile-form" class="space-y-5">
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-[13px] text-gray-600 mb-1.5">年龄</label><input name="age" type="number" min="0" max="120" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+            <div><label class="block text-[13px] text-gray-600 mb-1.5">性别</label><select name="gender" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition bg-white"><option value="">未选择</option><option value="male">男</option><option value="female">女</option></select></div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="block text-[13px] text-gray-600 mb-1.5">身高 (cm)</label><input name="height" type="number" step="0.1" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+            <div><label class="block text-[13px] text-gray-600 mb-1.5">体重 (kg)</label><input name="weight" type="number" step="0.1" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          </div>
+          <div><label class="block text-[13px] text-gray-600 mb-1.5">膳食目标</label><input name="diet_goal" placeholder="如：减脂 / 增肌 / 控糖" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          <div><label class="block text-[13px] text-gray-600 mb-1.5">慢性疾病（多个用逗号分隔）</label><input name="chronic_disease" placeholder="如：糖尿病, 高血压" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          <div><label class="block text-[13px] text-gray-600 mb-1.5">食物忌口（多个用逗号分隔）</label><input name="food_taboo" placeholder="如：海鲜, 花生" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          <div><label class="block text-[13px] text-gray-600 mb-1.5">口味偏好</label><input name="taste_preference" placeholder="如：清淡 / 微辣 / 偏甜" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          <div><label class="block text-[13px] text-gray-600 mb-1.5">所在地区</label><input name="region" placeholder="如：北京 / 上海" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+          <div class="flex gap-3 pt-2">
+            <button type="submit" class="h-10 px-5 rounded-xl bg-[#111827] hover:bg-[#1F2937] text-white text-[14px] font-medium transition">保存档案</button>
+            <button type="button" id="btn-load-profile" class="h-10 px-5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-[14px] font-medium transition">从服务器加载</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div id="view-knowledge" class="view hidden flex-1 overflow-y-auto">
+      <div class="max-w-[820px] mx-auto w-full px-4 md:px-10 py-8">
+        <div class="mb-6 flex items-center justify-between">
+          <div><h2 class="text-[20px] font-semibold text-gray-900">知识库管理</h2><p class="text-[13px] text-gray-500 mt-1">上传膳食相关文档，AI 对话时会自动检索</p></div>
+          <div id="kb-stats" class="text-[12px] text-gray-500 bg-gray-50 px-3 py-1.5 rounded-full border border-gray-200"></div>
+        </div>
+        <div class="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-amber-300 hover:bg-amber-50/30 transition mb-6">
+          <div class="text-4xl mb-3">📄</div>
+          <p class="text-[14px] text-gray-600 mb-3">拖拽文件到此处，或点击选择文件</p>
+          <div class="flex items-center justify-center gap-3">
+            <label class="h-9 px-4 rounded-lg bg-[#111827] hover:bg-[#1F2937] text-white text-[13px] font-medium cursor-pointer flex items-center gap-1.5 transition"><input type="file" id="kb-upload" accept=".txt,.md,.pdf,.docx" multiple class="hidden"><span>选择文件</span></label>
+            <select id="kb-category" class="h-9 px-3 rounded-lg border border-gray-200 text-[13px] bg-white outline-none focus:border-amber-400"><option value="营养学">营养学</option><option value="中医">中医</option><option value="禁忌">禁忌</option><option value="食谱">食谱</option><option value="慢病">慢病</option></select>
+          </div>
+          <p class="text-[11.5px] text-gray-400 mt-3">支持 .txt / .md / .pdf / .docx</p>
+        </div>
+        <div class="mb-6"><div class="flex gap-2"><input id="kb-search-input" placeholder="搜索知识库内容..." class="flex-1 h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 outline-none transition"><button id="kb-search-btn" class="h-10 px-5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-[13px] font-medium transition">搜索</button></div><div id="kb-search-results" class="mt-3 space-y-2"></div></div>
+        <div><div class="flex items-center justify-between mb-2"><h3 class="text-[15px] font-medium text-gray-900">已上传文档</h3><button id="kb-clear-btn" class="text-[12px] text-red-500 hover:text-red-600 transition">清空全部</button></div><div id="kb-doc-list" class="space-y-2"></div></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="auth-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center modal-bg">
+  <div class="bg-white rounded-2xl shadow-xl w-[380px] p-6 mx-4">
+    <div class="flex items-center justify-between mb-5"><h3 id="auth-modal-title" class="text-[18px] font-semibold text-gray-900">登录</h3><button id="auth-modal-close" class="w-7 h-7 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400"><svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+    <div class="flex gap-1 mb-5 border-b border-gray-100"><button data-auth="login" class="auth-tab flex-1 h-9 text-[14px] tab-active">登录</button><button data-auth="register" class="auth-tab flex-1 h-9 text-[14px] text-gray-400 hover:text-gray-700">注册</button></div>
+    <form id="auth-form" class="space-y-4">
+      <div><label class="block text-[13px] text-gray-600 mb-1.5">用户名</label><input name="username" required minlength="3" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+      <div><label class="block text-[13px] text-gray-600 mb-1.5">密码</label><input name="password" type="password" required minlength="6" class="w-full h-10 px-3 rounded-lg border border-gray-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 outline-none transition"></div>
+      <button id="auth-submit" type="submit" class="w-full h-10 rounded-xl bg-[#111827] hover:bg-[#1F2937] text-white text-[14px] font-medium transition">登录</button>
+    </form>
+    <div id="auth-error" class="hidden mt-3 text-[12.5px] text-red-500 bg-red-50 px-3 py-2 rounded-lg"></div>
+  </div>
+</div>
+<div id="toast-container" class="fixed top-5 left-1/2 -translate-x-1/2 z-[60] space-y-2"></div>
+<script src="./app.js"></script>
+</body>
+</html>

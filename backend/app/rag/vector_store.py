@@ -165,6 +165,18 @@ class BaseVectorStore(ABC):
         """
         ...
 
+    def list_documents(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        列出向量库中的文档（按文件聚合）
+
+        参数：
+            limit: 最多返回的记录数
+
+        返回：
+            文档摘要列表；默认实现返回空列表
+        """
+        return []
+
 
 import chromadb
 from chromadb.config import Settings
@@ -194,12 +206,6 @@ class ChromaVectorStore(BaseVectorStore):
             )
         )
 
-        # 先删除已存在的集合（如果有的话），确保使用新的embedding_function配置
-        try:
-            self.client.delete_collection(name="diet_knowledge")
-        except Exception:
-            pass  # 集合不存在时忽略错误
-
         # 创建自定义嵌入函数包装器，避免Chroma下载默认的ONNX模型
         # 如果提供了外部嵌入模型（BGE），使用包装器
         # 否则使用一个简单的伪嵌入函数（避免ONNX下载）
@@ -218,11 +224,23 @@ class ChromaVectorStore(BaseVectorStore):
                     return "placeholder_embedding"
             chroma_embedding_func = _PlaceholderEmbedding()
 
-        # 创建新集合，使用自定义嵌入函数（避免ONNX下载）
-        self.collection = self.client.get_or_create_collection(
-            name="diet_knowledge",
-            embedding_function=chroma_embedding_func
-        )
+        # 优先复用已有集合，只有 embedding_function 不兼容时才重建，避免重启清空知识库
+        try:
+            self.collection = self.client.get_or_create_collection(
+                name="diet_knowledge",
+                embedding_function=chroma_embedding_func
+            )
+        except Exception:
+            try:
+                self.client.delete_collection(name="diet_knowledge")
+                self.collection = self.client.get_or_create_collection(
+                    name="diet_knowledge",
+                    embedding_function=chroma_embedding_func
+                )
+            except Exception as e:
+                logger.error(f"Chroma集合初始化失败: {e}")
+                raise
+
         logger.info(f"Chroma向量库初始化完成: {persist_dir}")
 
     def add(self, texts: List[str], metadatas: Optional[List[Dict]] = None) -> List[str]:
@@ -347,6 +365,62 @@ class ChromaVectorStore(BaseVectorStore):
             文档总数
         """
         return self.collection.count()
+
+    def list_documents(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """
+        列出知识库文档，按 file_name + category 聚合为一份文档。
+
+        返回：
+            [{
+                "id": 首个chunk的id,
+                "title": 文件名,
+                "category": 文档类别,
+                "chunk_count": 分块数,
+                "doc_ids": 全部chunk id（删除时使用）,
+                "preview": 首个chunk内容预览
+            }]
+        """
+        try:
+            data = self.collection.get(
+                include=["metadatas", "documents"],
+                limit=limit
+            )
+            ids = data.get("ids") or []
+            contents = data.get("documents") or []
+            metadatas = data.get("metadatas") or []
+
+            groups: Dict[str, Dict[str, Any]] = {}
+            for doc_id, content, meta in zip(ids, contents, metadatas):
+                meta = meta or {}
+                file_name = meta.get("file_name") or meta.get("source") or doc_id
+                category = meta.get("category") or "未分类"
+                key = f"{file_name}\0{category}"
+                group = groups.setdefault(key, {
+                    "file_name": file_name,
+                    "category": category,
+                    "chunk_count": 0,
+                    "doc_ids": [],
+                    "preview": "",
+                })
+                group["chunk_count"] += 1
+                group["doc_ids"].append(doc_id)
+                if not group["preview"] and content:
+                    group["preview"] = content[:120]
+
+            documents = []
+            for group in groups.values():
+                documents.append({
+                    "id": group["doc_ids"][0],
+                    "title": group["file_name"],
+                    "category": group["category"],
+                    "chunk_count": group["chunk_count"],
+                    "doc_ids": group["doc_ids"],
+                    "preview": group["preview"],
+                })
+            return documents
+        except Exception as e:
+            logger.error(f"列出知识库文档失败: {e}")
+            return []
 
 
 class MilvusVectorStore(BaseVectorStore):

@@ -75,7 +75,8 @@ class LLMConfig(BaseModel):
     base_url: str = Field(description="API基础URL", default="https://api.deepseek.com")
     model: str = Field(description="模型名称", default="deepseek-chat")
     temperature: float = Field(description="生成温度(0-1)", default=0.7)
-    max_tokens: int = Field(description="最大token数量", default=4096)
+    max_tokens: int = Field(description="最大输出token数量(7天食谱JSON较长，建议8192)", default=8192)
+    timeout: int = Field(description="请求超时(秒，生成长JSON需60~120s)", default=180)
 
 
 # Redis配置

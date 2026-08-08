@@ -1,0 +1,10 @@
+{
+  "name": "dietagent-frontend",
+  "version": "1.0.0",
+  "description": "DietAgent · 豆包风格 AI 膳食顾问对话界面",
+  "private": true,
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

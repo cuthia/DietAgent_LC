@@ -73,7 +73,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """全局未知异常处理器"""
-    logger.error(f"系统异常: {str(exc)}", exc_info=True)
+    # 注意：不要用 f-string 直接把 exc 拼进 log 消息，因为当 exc 字符串中含有
+    # %(xxx)s 形式的内容时，loguru 会再做一次 str.format 导致 KeyError。
+    # 下面使用 loguru 自带的 {} 占位符传参 + logger.exception 自动记录栈信息。
+    safe_exc = str(exc)
+    try:
+        logger.exception("系统异常: {}", safe_exc)
+    except Exception:
+        # 极端兜底：如果占位符路径仍异常，直接打 warn
+        import traceback
+        logger.warning("系统异常(兜底日志): {}\n{}", safe_exc, traceback.format_exc())
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"code": 50000,

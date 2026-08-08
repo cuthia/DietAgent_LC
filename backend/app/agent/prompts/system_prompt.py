@@ -62,11 +62,14 @@ INFO_COLLECT_PROMPT = ChatPromptTemplate.from_messages([
 3. 如果信息充足，可以开始生成。
 
 请用JSON格式回答：
-{
-  "information_complete": true/false,
-  "missing_fields": ["需要追问的字段列表"],
+
+```json
+{{
+  "information_complete": true,
+  "missing_fields": [],
   "response": "追问用户的友好消息（如果信息不完整）"
-}""")
+}}
+```""")
 ])
 
 

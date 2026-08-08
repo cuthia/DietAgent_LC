@@ -20,8 +20,6 @@ import logging
 from typing import Dict, Any, Optional, List
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnableLambda, RunnablePassthrough
-from langchain.memory import ConversationBufferMemory
-
 from agent.llm_client import LLMClient
 from agent.tools.user_tool import get_user_info, format_profile_for_prompt
 from agent.tools.rag_tool import search_knowledge, format_knowledge_for_llm
@@ -43,6 +41,228 @@ from agent.prompts.validate_prompt import (
 
 # 日志记录器
 logger = logging.getLogger(__name__)
+
+
+def _normalize_chronic_disease(raw) -> str:
+    """
+    把 chronic_disease 字段统一解析为干净的疾病名称字符串。
+
+    数据库里该字段可能存为多种格式：
+      - None / ""           → 无慢病
+      - "[]"                → 空列表的字符串形式（历史 bug 会拼成 "[]饮食"）
+      - "['糖尿病']"         → 列表的 repr
+      - '["高血压"]'         → JSON 列表字符串
+      - "糖尿病"             → 纯字符串
+      - ["痛风"]             → 真正的 list
+
+    返回：
+      第一个有意义的疾病名称（如 "糖尿病"）；无则返回 ""。
+    """
+    import json
+    import ast
+
+    if not raw:
+        return ""
+
+    # 已经是 list/tuple
+    if isinstance(raw, (list, tuple)):
+        for item in raw:
+            if item and str(item).strip():
+                return str(item).strip()
+        return ""
+
+    # 字符串：尝试解析为 JSON / Python 字面量
+    s = str(raw).strip()
+    if not s or s in ("[]", "None", "null", "''", '""'):
+        return ""
+
+    parsed = None
+    # 先试 JSON
+    try:
+        parsed = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        # 再试 Python literal（如 "['糖尿病']"）
+        try:
+            parsed = ast.literal_eval(s)
+        except (ValueError, SyntaxError):
+            parsed = None
+
+    if isinstance(parsed, (list, tuple)):
+        for item in parsed:
+            if item and str(item).strip():
+                return str(item).strip()
+        return ""
+
+    # 解析失败或解析出标量：原样返回（去掉首尾空白）
+    return s
+
+
+def _loose_parse_llm_json(raw_text: str) -> Dict[str, Any]:
+    """
+    宽松解析 LLM 返回的 JSON。
+
+    JsonOutputParser 对 7 天食谱这种超长 JSON 有时会因为：
+      - 外面包了 ```json ... ``` 代码块；
+      - JSON 结尾后还有自然语言说明；
+      - 末尾漏了 ] 或 }（模型生成长文本时不完整）；
+      - 转义字符异常（中文引号、多余逗号）
+    而抛错或返回 None。这里做兜底：
+      1. 从 `` ` `` / `json` / `{}` 里抠第一段匹配的 JSON；
+      2. json.JSONDecoder 用 raw_decode，在第一个合法 JSON 结尾处截断；
+      3. 都失败返回 {}。
+    """
+    import re, json as _json
+    if not raw_text:
+        return {}
+    s = str(raw_text).strip()
+
+    # 1. 从 markdown ```json ... ``` 里抠代码块
+    md_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", s, re.IGNORECASE)
+    if md_match:
+        candidate = md_match.group(1).strip()
+        # 尝试直接解析
+        try:
+            return _json.loads(candidate)
+        except _json.JSONDecodeError:
+            pass  # 继续尝试宽松解析
+        s = candidate or s
+
+    # 2. 找到第一个 { ... 最外层 JSON 对象（可能不完整），逐字符加宽匹配
+    #    用 raw_decode 解析第一个合法 JSON 片段
+    try:
+        decoder = _json.JSONDecoder()
+        # 找到第一个 { 或 [（同时兼容数组，但食谱根是对象）
+        start = len(s)
+        for ch in ('{', '['):
+            pos = s.find(ch)
+            if 0 <= pos < start:
+                start = pos
+        if start >= len(s):
+            return {}
+        obj, _end = decoder.raw_decode(s[start:])
+        if isinstance(obj, dict):
+            return obj
+        if isinstance(obj, list):
+            # 少数情况返回 [ {...} ]，包一层结构
+            return {"days": obj} if any(isinstance(x, dict) for x in obj) else {}
+    except (_json.JSONDecodeError, ValueError):
+        pass
+
+    # 3. 最后一搏：补末尾花括号再解析（7天长JSON有时末尾被截断了}）
+    brace = s.count('{') - s.count('}')
+    bracket = s.count('[') - s.count(']')
+    if brace > 0 or bracket > 0:
+        fixed = s.rstrip()
+        if bracket > 0:
+            fixed += "]" * bracket
+        if brace > 0:
+            fixed += "}" * brace
+        try:
+            return _json.loads(fixed)
+        except _json.JSONDecodeError:
+            pass
+
+    return {}
+
+
+def _sanitize_diet_plan(dp):
+    """
+    把 LLM 返回的膳食方案做标准化 + 兜底缺省值，保证后续 .get() 不崩。
+    输入可以是 dict、None、或其他；输出一定是 dict 且含所有关键 key。
+    """
+    # 完全不是 dict → 返回一份"空的标准结构"，保证 .get(key) 任何 key 都不是 None
+    if not isinstance(dp, dict):
+        return {
+            "plan_name": "",
+            "plan_days": 0,
+            "total_calories": 0,
+            "avg_daily_calories": 0,
+            "weekly_total_calories": 0,
+            "health_tips": [],
+            "disclaimer": "",
+            "breakfast": {"items": [], "total_calories": 0},
+            "lunch":     {"items": [], "total_calories": 0},
+            "dinner":    {"items": [], "total_calories": 0},
+            "snack":     {"items": [], "total_calories": 0},
+            "days": [],
+        }
+
+    # 顶层缺省值（单日方案兜底）
+    dp.setdefault("plan_name", "")
+    dp.setdefault("plan_days", 0)
+    dp.setdefault("total_calories", 0)
+    dp.setdefault("avg_daily_calories", 0)
+    dp.setdefault("weekly_total_calories", 0)
+    dp.setdefault("health_tips", [])
+    dp.setdefault("disclaimer", "")
+
+    # 归一化 total_calories/avg_daily_calories/weekly_total_calories（必须 int）
+    for k in ("total_calories", "avg_daily_calories", "weekly_total_calories"):
+        v = dp.get(k)
+        try:
+            dp[k] = int(v) if v not in (None, "") else 0
+        except (ValueError, TypeError):
+            dp[k] = 0
+
+    # 顶层三餐：如果不是 dict，补空（兼容单日照旧显示）
+    for meal in ("breakfast", "lunch", "dinner", "snack"):
+        if not isinstance(dp.get(meal), dict):
+            dp[meal] = {"items": [], "total_calories": 0}
+        else:
+            md = dp[meal]
+            md.setdefault("items", [])
+            md.setdefault("total_calories", 0)
+            try:
+                md["total_calories"] = int(md["total_calories"] or 0)
+            except (ValueError, TypeError):
+                md["total_calories"] = 0
+            if not isinstance(md["items"], list):
+                md["items"] = []
+
+    # 归一化 days[]
+    days = dp.get("days")
+    if isinstance(days, (list, tuple)):
+        cleaned_days = []
+        for d in days:
+            if not isinstance(d, dict):
+                continue
+            d.setdefault("day_num", len(cleaned_days) + 1)
+            d.setdefault("day_label", f"第{d.get('day_num')}天")
+            d.setdefault("day_total_calories", 0)
+            try:
+                d["day_total_calories"] = int(d["day_total_calories"] or 0)
+            except (ValueError, TypeError):
+                d["day_total_calories"] = 0
+            d.setdefault("day_note", "")
+            for meal in ("breakfast", "lunch", "dinner", "snack"):
+                if not isinstance(d.get(meal), dict):
+                    d[meal] = {"items": [], "total_calories": 0}
+                else:
+                    md = d[meal]
+                    md.setdefault("items", [])
+                    md.setdefault("total_calories", 0)
+                    try:
+                        md["total_calories"] = int(md["total_calories"] or 0)
+                    except (ValueError, TypeError):
+                        md["total_calories"] = 0
+                    if not isinstance(md["items"], list):
+                        md["items"] = []
+            cleaned_days.append(d)
+        dp["days"] = cleaned_days
+    else:
+        dp["days"] = []
+
+    # 如果 days[] 非空，顺便补平均/合计热量
+    if dp["days"]:
+        if not dp.get("plan_days"):
+            dp["plan_days"] = len(dp["days"])
+        if not dp.get("avg_daily_calories"):
+            total = sum((d.get("day_total_calories") or 0) for d in dp["days"])
+            dp["avg_daily_calories"] = int(total / len(dp["days"])) if dp["days"] else 0
+            if not dp.get("weekly_total_calories") and len(dp["days"]) >= 7:
+                dp["weekly_total_calories"] = total
+
+    return dp
 
 
 class DietAgentChain:
@@ -172,13 +392,17 @@ class DietAgentChain:
         
         user_query = input_data["user_query"]
         user_profile = input_data["user_profile"]
-        
+
         # 构建检索查询（结合用户健康状况）
+        # chronic_disease 可能存为：None / "" / "[]" / "['糖尿病']" / "糖尿病" 等格式
+        # 需要统一解析为有意义的疾病名称字符串，避免把字面量 "[]" 拼进检索 query
+        raw_chronic = user_profile.get("chronic_disease", "")
+        chronic = _normalize_chronic_disease(raw_chronic)  # 返回干净的疾病名（如"糖尿病"），无则 ""
+
         search_query = user_query
-        chronic = user_profile.get("chronic_disease", "")
         if chronic:
             search_query = f"{chronic}饮食 {user_query}"
-        
+
         # 从知识库检索
         category = None
         if chronic:
@@ -300,22 +524,69 @@ class DietAgentChain:
         }
         
         try:
-            # 使用LCEL链：Prompt → LLM → Parser
-            chain = DIET_GENERATE_PROMPT | self.llm | self.json_parser
-            diet_plan = await chain.ainvoke(prompt_input)
-            
+            # 先跑 Prompt → LLM，拿到 AIMessage 原文（保留非 JSON 尾部/代码块信息）
+            # 再用两层 JSON 解析：优先 JsonOutputParser，失败就宽松正则兜底
+            llm_chain = DIET_GENERATE_PROMPT | self.llm
+            llm_resp = await llm_chain.ainvoke(prompt_input)
+
+            # 兼容 LangChain 不同返回类型：AIMessage / str
+            if hasattr(llm_resp, "content") and llm_resp.content:
+                raw_text = str(llm_resp.content)
+            else:
+                raw_text = str(llm_resp)
+
+            input_data["raw_response"] = raw_text
+
+            diet_plan: Dict[str, Any] = {}
+            parse_error = None
+
+            # 1) 优先用标准 JsonOutputParser
+            try:
+                diet_plan = self.json_parser.parse(raw_text)
+            except Exception as pe:
+                parse_error = f"JsonOutputParser 解析失败，进入兜底: {pe}"
+
+            # 2) 若解析结果为空/None 或报错，尝试宽松提取
+            if not isinstance(diet_plan, dict) or len(diet_plan) == 0 or not (
+                diet_plan.get("days") or diet_plan.get("breakfast") or diet_plan.get("plan_name")
+            ):
+                loose = _loose_parse_llm_json(raw_text)
+                if loose:
+                    if parse_error:
+                        logger.warning(f"[环节4] {parse_error}，宽松解析成功（keys={list(loose.keys())[:8]}）")
+                    diet_plan = loose
+                elif parse_error:
+                    logger.error(f"[环节4] {parse_error}，宽松解析也为空")
+
+            # 3) 标准化 + 兜底缺省值（保证后续所有 .get() 不会 NoneType）
+            diet_plan = _sanitize_diet_plan(diet_plan)
+
+            if not diet_plan:
+                # 最终还是解析不到结构化数据 → 标记失败
+                raise ValueError(
+                    "LLM返回内容未能解析为膳食方案JSON，"
+                    "请稍后重试或在提示中明确要求仅输出JSON。"
+                )
+
             input_data["diet_plan"] = diet_plan
-            input_data["raw_response"] = str(diet_plan)
-            
-            logger.info(f"[环节4] 食谱生成完成: total_cal={diet_plan.get('total_calories', 0)}千卡")
+
+            # 7天/多天显示 day_count+avg，单日显示 total_cal
+            days = diet_plan.get("days") or []
+            if days:
+                avg = diet_plan.get("avg_daily_calories") or 0
+                weekly = diet_plan.get("weekly_total_calories") or 0
+                cal_info = f"days={len(days)}, avg≈{avg}kcal, weekly≈{weekly}kcal"
+            else:
+                cal_info = f"total_cal={diet_plan.get('total_calories', 0)}千卡"
+            logger.info(f"[环节4] 食谱生成完成: {cal_info}")
         except Exception as e:
-            logger.error(f"[环节4] 食谱生成失败: {e}")
-            # 失败时返回错误信息
+            logger.exception(f"[环节4] 食谱生成失败: {e}")  # exception 带堆栈，方便定位
+            # 失败时返回错误信息（仍用 dict 含 error 字段，让后续步骤统一判断）
             input_data["diet_plan"] = {
                 "error": True,
                 "message": f"膳食方案生成失败，请稍后重试。错误：{str(e)}"
             }
-            input_data["raw_response"] = str(e)
+            input_data.setdefault("raw_response", str(e))
         
         return input_data
     
@@ -373,18 +644,38 @@ class DietAgentChain:
                 issues_text += "\n修正建议：\n" + "\n".join([
                     f"- {s}" for s in validation_result["suggestions"]
                 ])
-            
+
             revise_input = {
                 "diet_plan": str(diet_plan),
                 "issues": issues_text,
                 "user_profile": input_data["profile_text"]
             }
-            
-            revise_chain = DIET_REVISE_PROMPT | self.llm | self.json_parser
-            revised_plan = await revise_chain.ainvoke(revise_input)
-            
+
+            # 修正同样两层解析：先拿 LLM 原文，再 JsonOutputParser + 宽松兜底
+            revise_chain = DIET_REVISE_PROMPT | self.llm
+            revised_resp = await revise_chain.ainvoke(revise_input)
+            revised_raw = (
+                str(revised_resp.content)
+                if hasattr(revised_resp, "content") and revised_resp.content
+                else str(revised_resp)
+            )
+            revised_plan: Dict[str, Any] = {}
+            try:
+                revised_plan = self.json_parser.parse(revised_raw)
+            except Exception:
+                pass
+            if not isinstance(revised_plan, dict) or not (
+                revised_plan.get("days") or revised_plan.get("breakfast")
+            ):
+                loose = _loose_parse_llm_json(revised_raw)
+                if loose:
+                    revised_plan = loose
+            revised_plan = _sanitize_diet_plan(revised_plan)
+
             # 再次校验修正后的方案
-            revised_validation = validate_diet_plan(revised_plan, user_profile)
+            revised_validation = validate_diet_plan(revised_plan, user_profile) if revised_plan else {
+                "passed": False, "forbidden_items": [], "issues": [], "suggestions": []
+            }
             
             if revised_validation["passed"]:
                 input_data["final_diet_plan"] = revised_plan
@@ -550,68 +841,94 @@ class DietAgentChain:
             }
     
     # ========== 流式处理 ==========
-    
+
+    async def _stream_text_chunks(self, text: str, chunk_size_min: int = 2, chunk_size_max: int = 5):
+        """
+        把最终答复文本切成小 chunk 逐段 yield，
+        形成"逐字流式输出"的用户体验。
+        不增加额外 LLM 调用，内容与同步版完全一致。
+        """
+        import asyncio
+        import random
+        if not text:
+            return
+        i = 0
+        n = len(text)
+        # 如果文本较短就逐字；较长就 2-5 字/块，总体打字速度适中
+        if n < 60:
+            chunk_size_min, chunk_size_max = 1, 2
+        rng = random.Random(hash(text) & 0xFFFFFFFF)
+        while i < n:
+            sz = rng.randint(chunk_size_min, chunk_size_max)
+            chunk = text[i:i + sz]
+            i += sz
+            yield chunk
+            await asyncio.sleep(0.01 + rng.random() * 0.02)
+
     async def process_stream(
         self, 
         user_id: int, 
         user_query: str
     ):
         """
-        流式处理（返回各环节进度事件）
-        
-        用于前端实时显示处理进度
-        
-        参数：
-            user_id: 用户ID
-            user_query: 用户查询
-        
-        Yields:
-            每个处理阶段的状态事件：
-            {
-                "stage": "collect_info" | "retrieve_knowledge" | ...,
-                "status": "start" | "complete",
-                "message": 状态描述
-            }
+        流式处理（返回各环节进度事件 + 最终答复逐字流）
+
+        用于前端实时显示处理进度 + 打字机效果
+
+        事件类型：
+        1. 阶段事件：{"stage":"xxx", "status":"start/complete", "message":"..."}
+        2. 最终答复流：{"stage":"finalize", "status":"stream", "chunk":"逐字"}
+        3. 完成事件：{"stage":"output", "status":"complete", "message":"处理完成", "data": result}
         """
         try:
             input_data = {
                 "user_id": user_id,
                 "user_query": user_query
             }
-            
+
             # 环节1：信息收集
             yield {"stage": "collect_info", "status": "start", "message": "正在收集您的健康信息..."}
             input_data = await self.step_collect_info(input_data)
             yield {"stage": "collect_info", "status": "complete", "message": "健康信息收集完成"}
-            
+
             # 环节2：知识检索
             yield {"stage": "retrieve_knowledge", "status": "start", "message": "正在检索膳食知识..."}
             input_data = await self.step_retrieve_knowledge(input_data)
             yield {"stage": "retrieve_knowledge", "status": "complete", "message": f"检索到 {len(input_data.get('knowledge_results', []))} 条相关知识"}
-            
+
             # 环节3：约束构建
             yield {"stage": "build_constraints", "status": "start", "message": "正在构建约束条件..."}
             input_data = await self.step_build_constraints(input_data)
             yield {"stage": "build_constraints", "status": "complete", "message": "约束条件构建完成"}
-            
+
             # 环节4：食谱生成
             yield {"stage": "generate_diet", "status": "start", "message": "正在为您生成个性化膳食方案..."}
             input_data = await self.step_generate_diet(input_data)
             yield {"stage": "generate_diet", "status": "complete", "message": "膳食方案生成完成"}
-            
+
             # 环节5：方案校验
             yield {"stage": "validate_diet", "status": "start", "message": "正在校验膳食方案..."}
             input_data = await self.step_validate_diet(input_data)
             yield {"stage": "validate_diet", "status": "complete", "message": "方案校验完成"}
-            
-            # 环节6：结果输出
+
+            # 环节6：结果格式化 + 最终答复逐字流
             result = await self.step_format_output(input_data)
+
+            # 只有成功生成了答复，才发 stream 打字效果
+            final_message = result.get("message", "") or ""
+            if final_message and result.get("success"):
+                yield {"stage": "finalize", "status": "start", "message": "正在整理最终答复..."}
+                async for chunk in self._stream_text_chunks(final_message):
+                    yield {"stage": "finalize", "status": "stream", "chunk": chunk}
+                yield {"stage": "finalize", "status": "complete", "message": "答复生成完成"}
+
             yield {"stage": "output", "status": "complete", "message": "处理完成", "data": result}
-            
+
         except Exception as e:
+            logger.exception("[Agent流式处理] 异常: {}", str(e))
             yield {
-                "stage": "error", 
-                "status": "error", 
+                "stage": "error",
+                "status": "error",
                 "message": f"处理异常：{str(e)}"
             }
 

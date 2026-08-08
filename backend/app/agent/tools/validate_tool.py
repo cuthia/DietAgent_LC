@@ -186,15 +186,33 @@ def validate_diet_plan(
     forbidden_items = []
     all_food_items = []
     
-    # 收集所有食材
+    # 收集所有食材：兼容
+    #   1) 顶层结构（单日：breakfast/lunch/dinner/snack）
+    #   2) days[] 结构（多日：每天包含上述四餐）
     meals = ["breakfast", "lunch", "dinner", "snack"]
-    for meal in meals:
-        meal_data = diet_plan.get(meal, {})
-        items = meal_data.get("items", [])
-        for item in items:
-            food_name = item.get("name", "")
-            if food_name:
-                all_food_items.append(food_name)
+    days = diet_plan.get("days") or []
+    # 构造一个待扫描的"day字典"列表：包含 days 里所有 day，若有顶层单餐则额外加一个虚拟day
+    scan_days = list(days)
+    # 如果 days 里没有数据，再从顶层把各餐拼一个 day 进去
+    if not scan_days:
+        top_day = {}
+        for meal in meals:
+            meal_data = diet_plan.get(meal)
+            if meal_data:
+                top_day[meal] = meal_data
+        if top_day:
+            scan_days.append(top_day)
+    # 遍历每一天 & 每餐
+    for d in scan_days:
+        for meal in meals:
+            meal_data = d.get(meal) if isinstance(d, dict) else None
+            if not meal_data:
+                continue
+            items = meal_data.get("items", [])
+            for item in items:
+                food_name = item.get("name", "")
+                if food_name:
+                    all_food_items.append(food_name)
     
     # 校验所有食材
     if all_food_items:

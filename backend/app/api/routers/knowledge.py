@@ -137,6 +137,19 @@ async def search_knowledge(
     )
 
 
+@router.get("/list", summary="获取知识库文档列表")
+async def list_knowledge_documents(
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取知识库文档列表
+
+    返回按文件名聚合的文档摘要，包含每个文档全部 chunk id，
+    前端可据此展示列表并批量删除。
+    """
+    return knowledge_service.get_documents(limit=500)
+
+
 @router.delete("/{doc_id}", summary="删除文档")
 async def delete_document(
     doc_id: str = Path(description="文档ID"),

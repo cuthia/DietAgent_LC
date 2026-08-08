@@ -46,6 +46,13 @@ class LLMClient:
         print(chunk, end="")
     """
     
+    # LLM 请求超时时间（秒）
+    # 生成多日完整 JSON 食谱（7天 × 4餐 × 多食材 + 营养评估）输出量大，
+    # deepseek-chat 实际生成需要 60~120 秒，默认 30 秒会触发 openai 客户端
+    # 超时重试（"Retrying request to /chat/completions"），最终报
+    # "Request timed out"，因此放宽到 180 秒。
+    DEFAULT_TIMEOUT = 180
+
     def __init__(self, llm_config: LLMConfig):
         """
         初始化LLM客户端
@@ -62,56 +69,50 @@ class LLMClient:
         根据配置创建对应的LLM实例
         
         支持的type值：
-        - deepseek: 使用ChatDeepSeek
-        - qwen: 使用ChatDashScope
+        - deepseek: 使用兼容DeepSeek API的ChatOpenAI
+        - qwen: 使用兼容DashScope API的ChatOpenAI
         - openai: 使用ChatOpenAI
         """
         try:
             llm_type = self.config.type
+
+            # 统一使用ChatOpenAI（兼容所有OpenAI协议的API）
+            from langchain_openai import ChatOpenAI
+
+            # 公共参数：超时与最大输出
+            # timeout / max_tokens 优先从配置读取，配置缺省时用宽松默认值
+            timeout = getattr(self.config, "timeout", None) or self.DEFAULT_TIMEOUT
+            max_tokens = getattr(self.config, "max_tokens", None) or 8192
+            common_kwargs = dict(
+                model=self.config.model,
+                api_key=self.config.api_key,
+                temperature=self.config.temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+            )
             
             if llm_type == "deepseek":
-                from langchain_community.chat_models import ChatDeepSeek
-                self._llm = ChatDeepSeek(
-                    model=self.config.model,
-                    api_key=self.config.api_key,
-                    base_url=self.config.base_url,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens
-                )
-                logger.info(f"LLM初始化成功: DeepSeek ({self.config.model})")
+                self._llm = ChatOpenAI(base_url=self.config.base_url, **common_kwargs)
+                logger.info(f"LLM初始化成功: DeepSeek ({self.config.model}), "
+                            f"timeout={timeout}s, max_tokens={max_tokens}")
                 
             elif llm_type == "qwen":
-                from langchain_community.chat_models import ChatDashScope
-                self._llm = ChatDashScope(
-                    model=self.config.model,
-                    dashscope_api_key=self.config.api_key,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens
-                )
-                logger.info(f"LLM初始化成功: 通义千问 ({self.config.model})")
+                # 通义千问兼容DashScope API
+                self._llm = ChatOpenAI(
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                    **common_kwargs)
+                logger.info(f"LLM初始化成功: 通义千问 ({self.config.model}), "
+                            f"timeout={timeout}s, max_tokens={max_tokens}")
                 
             elif llm_type == "openai":
-                from langchain_community.chat_models import ChatOpenAI
-                self._llm = ChatOpenAI(
-                    model=self.config.model,
-                    api_key=self.config.api_key,
-                    base_url=self.config.base_url,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens
-                )
-                logger.info(f"LLM初始化成功: OpenAI ({self.config.model})")
+                self._llm = ChatOpenAI(base_url=self.config.base_url, **common_kwargs)
+                logger.info(f"LLM初始化成功: OpenAI ({self.config.model}), "
+                            f"timeout={timeout}s, max_tokens={max_tokens}")
                 
             else:
-                # 默认使用DeepSeek
+                # 默认使用DeepSeek兼容
                 logger.warning(f"未知的LLM类型: {llm_type}，默认使用DeepSeek")
-                from langchain_community.chat_models import ChatDeepSeek
-                self._llm = ChatDeepSeek(
-                    model=self.config.model,
-                    api_key=self.config.api_key,
-                    base_url=self.config.base_url,
-                    temperature=self.config.temperature,
-                    max_tokens=self.config.max_tokens
-                )
+                self._llm = ChatOpenAI(base_url=self.config.base_url, **common_kwargs)
                 
         except ImportError as e:
             logger.error(f"LLM导入失败: {e}")

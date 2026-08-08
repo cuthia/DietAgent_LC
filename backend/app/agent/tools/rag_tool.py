@@ -67,7 +67,7 @@ async def search_knowledge(
         
         # 初始化嵌入模型和向量库
         embedding_model = EmbeddingModel(
-            model=settings.embedding.model,
+            model_name=settings.embedding.model,
             device=settings.embedding.device,
             local_path=settings.embedding.local_path
         )

@@ -293,57 +293,80 @@ huggingface-cli download BAAI/bge-small-zh-v1.5 --local-dir data/models/bge-smal
 python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-small-zh-v1.5', cache_dir='data/models')"
 ```
 
-#### 3.5 配置数据库（SQLite 开箱即用）
+#### 3.5 配置数据库（MySQL）
 
-默认使用 SQLite，无需额外配置。数据库文件位于 `backend/app/data/` 目录。
+后端默认使用 MySQL，连接配置位于 `backend/app/db/session.py`：
 
-生产环境可切换为 PostgreSQL，编辑 `config.yaml`：
-
-```yaml
-database:
-  type: postgresql
-  postgresql:
-    host: localhost
-    port: 5432
-    database: diet_agent
-    user: postgres
-    password: your-password
+```python
+ASYNC_DATABASE_URL = "mysql+aiomysql://root:yzt998666@localhost:3306/dietapp?charset=utf8"
 ```
+
+首次使用前请确保：
+
+1. 已安装并启动 MySQL（5.7+ 或 8.0）
+2. 创建数据库 `dietapp`（字符集 utf8mb4）：
+
+```sql
+CREATE DATABASE IF NOT EXISTS dietapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+3. 如需修改账号密码或库名，直接编辑 `backend/app/db/session.py` 中的 `ASYNC_DATABASE_URL`。
+4. 数据表会在后端首次启动时由 `init_db()` 自动创建（`Base.metadata.create_all`），无需手动建表。
 
 ### 4. 启动服务
 
-#### 方式一：命令行启动（推荐开发使用）
-
-**启动后端服务**：
+#### 4.1 启动后端服务
 
 ```bash
 cd backend/app
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**启动前端服务**（另开终端）：
+启动成功后会看到 `Uvicorn running on http://0.0.0.0:8000`。
+MySQL 未启动或连接失败时，登录/注册接口会卡住或返回 500，请先排查数据库。
+
+#### 4.2 启动前端服务（另开终端）
+
+前端为纯静态实现（HTML + Tailwind v3 + 原生 ES modules，无构建依赖）。
+有两种方式启动：
+
+**方式 A：Python 静态服务器（推荐，连真实后端用）**
 
 ```bash
 cd frontend
-streamlit run app.py --server.port 8501
+python -m http.server 8501
 ```
 
-**访问地址**：
+然后浏览器打开 http://localhost:8501/ 。
+前端默认连 `http://localhost:8000`，启动后会自动 `GET /health` 探活，
+顶部徽标会显示"已连接后端"（绿色）或"mock 演示"（琥珀色，后端不通时自动用本地 mock 流式回复）。
+
+**方式 B：直接双击 HTML 文件（离线 / 快速演示用）**
+
+直接双击 `frontend/index.html`（模块化版）或 `frontend/_standalone_singlefile.html`（单文件版）。
+由于 `file://` 协议下浏览器会限制 ES module 加载和 CORS，**此方式只能跑 mock 演示**，
+不能连真实后端。需要连真实后端请用方式 A。
+
+> ⚠️ 前端调用后端 `/api/v1/agent/chat/stream`、`/api/v1/user/login` 等接口属于跨域请求。
+> 如遇 CORS 报错，请在后端 `main.py` 的 CORSMiddleware `allow_origins` 中加入前端地址
+> （例如 `http://localhost:8501`），或用 nginx/caddy 做同域反向代理。
+
+#### 4.3 访问地址
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
-| API 文档 | http://localhost:8000/docs | Swagger UI，可测试所有接口 |
-| Streamlit 前端 | http://localhost:8501 | AI 对话界面 |
-| 健康检查 | http://localhost:8000/agent/health | 服务状态检查 |
+| 前端 UI | http://localhost:8501 | 豆包风格 AI 对话界面 |
+| 后端 API 文档 | http://localhost:8000/docs | Swagger UI，可测试所有接口 |
+| 健康检查 | http://localhost:8000/health | 后端存活探活（前端启动时自动调用） |
+| Agent 健康检查 | http://localhost:8000/agent/health | Agent 服务状态 |
 
-#### 方式二：Docker 启动（预留）
+#### 4.4 Docker 启动（预留）
 
 > ⚠️ Docker 配置即将提供，敬请期待
 
 ```bash
 # 构建镜像
 docker build -t dietagent-backend ./backend
-docker build -t dietagent-frontend ./frontend
 
 # 启动容器
 docker compose up -d
