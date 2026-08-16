@@ -20,7 +20,7 @@ vector_store:
 # LLM配置
 llm:
   type: deepseek  # deepseek / qwen / openai
-  api_key: "sk-081fd7f56c4344d5becbac33f1c787fb"  # 使用环境变量占位符
+  api_key:  your_api_key  # 使用环境变量占位符
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   temperature: 0.7

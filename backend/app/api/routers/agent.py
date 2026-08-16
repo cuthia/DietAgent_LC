@@ -476,6 +476,40 @@ async def validate_plan(request: ValidatePlanRequest):
 
 
 @router.get(
+    "/weather/current",
+    response_model=BaseResponse,
+    summary="获取当前天气（前端展示用）",
+    description="获取指定地区的实时天气与膳食适配建议，用于前端 Header 天气 chip 展示"
+)
+async def get_current_weather(
+    region: Optional[str] = Query(None, description="地区中文名，如'杭州'"),
+    user_id: Optional[int] = Query(None, description="用户 ID（region 为空时从档案取）"),
+):
+    """
+    前端调用：获取实时天气数据展示 UI 卡片。
+    优先传 region，没传就用 user_id 对应的档案地区。
+    """
+    try:
+        from agent.tools.weather_tool import weather_tool
+        result = await weather_tool.ainvoke({
+            "region_name": region,
+            "user_id": user_id,
+        })
+        return BaseResponse(
+            success=result.get("ok", False),
+            message=result.get("fallback_reason", "") or "获取成功",
+            data=result,
+        )
+    except Exception as e:
+        logger.error(f"[weather/current] 异常: {e}")
+        return BaseResponse(
+            success=False,
+            message=f"天气服务异常: {str(e)}",
+            data=None,
+        )
+
+
+@router.get(
     "/health",
     response_model=BaseResponse,
     summary="健康检查",

@@ -222,6 +222,36 @@ def adapt_diet_to_region(
     return adaptations
 
 
+# ========== LangChain @tool 包装（第一点改进配套） ==========
+
+from langchain_core.tools import tool as _lc_tool
+
+
+@_lc_tool
+def region_adapt_tool(region: str) -> Dict[str, Any]:
+    """
+    获取指定地域的饮食文化特点（主食/烹饪方式/口味/特色菜/避免项）。
+
+    适用于 diet_plan 意图：根据用户所在地域推荐符合当地饮食文化的食材与做法。
+
+    参数：
+        region: 地域名称，支持直接匹配（南方/北方/沿海/川渝/江南/东北）
+                和模糊匹配（广东→南方、北京→北方、上海→沿海 等）
+
+    返回：
+        {
+            "region": "南方",
+            "staple_foods": ["米饭", "米粉", "年糕"],
+            "cooking_styles": ["清淡", "清蒸", "白灼", "煲汤"],
+            "recommended_ingredients": ["水稻", "甘蔗", "竹笋"],
+            "flavor_preferences": ["清淡", "鲜美", "微甜"],
+            "avoid": ["过于辛辣", "过于油腻"],
+            "sample_dishes": ["白切鸡", "清蒸鲈鱼", "广式早茶"]
+        }
+    """
+    return get_region_diet_features(region)
+
+
 # ======================== 文件内自测脚本 ========================
 # 运行方式：在 backend/app 目录下执行  python -m agent.tools.region_tool
 if __name__ == "__main__":

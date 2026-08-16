@@ -86,6 +86,16 @@ class RedisConfig(BaseModel):
     db: int = Field(description="Redis数据库编号", default=0)
     password: str = Field(description="Redis密码", default="")
 
+
+# 天气配置（高德地图 API）
+class WeatherConfig(BaseModel):
+    enabled: bool = Field(description="是否启用天气功能", default=True)
+    provider: str = Field(description="天气服务提供商", default="amap")
+    api_key: str = Field(description="高德 Web 服务 Key（建议用 ${AMAP_WEATHER_KEY} 环境变量）", default="")
+    base_url: str = Field(description="高德天气 API 端点", default="https://restapi.amap.com/v3/weather/weatherInfo")
+    cache_ttl_seconds: int = Field(description="同地区天气缓存时间（秒）", default=1800)
+    timeout_seconds: int = Field(description="单请求超时（秒）", default=5)
+
 # 全局配置类，将各种配置类对象实例化，从而属性就赋入默认值
 class Settings(BaseModel):
     env: str = "dev"
@@ -97,6 +107,7 @@ class Settings(BaseModel):
     database: DatabaseConfig = DatabaseConfig()
     llm: LLMConfig = LLMConfig()
     redis: RedisConfig = RedisConfig()
+    weather: WeatherConfig = WeatherConfig()
     
 
 class ConfigHandler:

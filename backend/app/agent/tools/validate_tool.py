@@ -239,15 +239,71 @@ def validate_diet_plan(
 def get_recommended_foods(chronic_disease: str) -> List[str]:
     """
     获取特定慢病推荐食用的食材
-    
+
     参数：
         chronic_disease: 慢性疾病名称
-    
+
     返回：
         推荐食材列表
     """
     disease_info = CHRONIC_DISEASE_FOOD_TABOO.get(chronic_disease, {})
     return disease_info.get("recommended", [])
+
+
+# ========== LangChain @tool 包装（第一点改进配套） ==========
+# 以下 @tool 函数供 Planner 决策后显式调用（chain 内 await tool.ainvoke）
+# 注意：与原函数并存，不修改原函数行为，保持向后兼容
+
+from langchain_core.tools import tool as _lc_tool
+
+
+@_lc_tool
+def food_taboo_check_tool(food_name: str, chronic_disease: str = "", food_taboo: str = "") -> Dict[str, Any]:
+    """
+    校验单个食材是否符合用户的慢病禁忌和食物忌口。
+
+    适用于 food_eval 意图（如"痛风能吃豆腐吗？"）：
+    输入食材名 + 用户慢病 + 用户忌口，返回该食材是否安全、警告或禁忌。
+
+    参数：
+        food_name: 待校验的食材名称（单个），如 "豆腐"
+        chronic_disease: 用户的慢性疾病名称（如 "痛风"、"糖尿病"），无则空字符串
+        food_taboo: 用户自定义的食物忌口（逗号分隔，如 "海鲜,花生"），无则空字符串
+
+    返回：
+        {
+            "food_name": "豆腐",
+            "verdict": "safe" / "warning" / "forbidden",
+            "reason": "痛风患者建议减少食用" / "用户忌口" / "",
+            "recommended_alternatives": ["鸡蛋", "精肉"]
+        }
+    """
+    # 构造一个最小 user_profile 喂给原 check_food_taboo
+    pseudo_profile = {
+        "chronic_disease": chronic_disease or "",
+        "food_taboo": food_taboo or "",
+    }
+    result = check_food_taboo([food_name], pseudo_profile)
+
+    if food_name in result["forbidden"]:
+        verdict = "forbidden"
+        reason = result["details"].get(food_name, "不符合用户健康要求")
+    elif food_name in result["warning"]:
+        verdict = "warning"
+        reason = result["details"].get(food_name, "建议减少食用")
+    else:
+        verdict = "safe"
+        reason = ""
+
+    # 推荐替代食材
+    alternatives = get_recommended_foods(chronic_disease) if chronic_disease else []
+
+    return {
+        "food_name": food_name,
+        "verdict": verdict,
+        "reason": reason,
+        "recommended_alternatives": alternatives[:5] if alternatives else [],
+    }
 
 
 # ======================== 文件内自测脚本 ========================

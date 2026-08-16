@@ -160,6 +160,80 @@ async def update_user_info(user_id: int, updates: Dict[str, Any]) -> bool:
         return False
 
 
+# ========== LangChain @tool 包装（第一点改进配套） ==========
+
+from langchain_core.tools import tool as _lc_tool
+
+# 允许被 profile_update 意图更新的字段白名单
+# 防止 Prompt 注入：LLM 输出的 profile_updates 只能更新这些字段
+_PROFILE_UPDATE_WHITELIST = {
+    "age", "gender", "height", "weight",
+    "chronic_disease", "food_taboo",
+    "region", "diet_goal", "taste_preference",
+}
+
+
+@_lc_tool
+async def user_profile_update_tool(user_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    更新用户健康档案（部分字段更新）。
+
+    适用于 profile_update 意图（如"哦我海鲜过敏"、"我改成糖尿病了"）：
+    只允许更新白名单字段，防止 Prompt 注入攻击。
+
+    参数：
+        user_id: 用户 ID
+        updates: 待更新字段字典，key 必须是白名单字段：
+                 age / gender / height / weight / chronic_disease /
+                 food_taboo / region / diet_goal / taste_preference
+                 例：{"food_taboo": "海鲜", "chronic_disease": "糖尿病"}
+
+    返回：
+        {
+            "success": true,
+            "updated_fields": ["food_taboo", "chronic_disease"],
+            "rejected_fields": ["is_admin"],  # 不在白名单的字段会被拒绝
+            "message": "已更新 2 个字段"
+        }
+    """
+    if not isinstance(updates, dict):
+        return {"success": False, "message": "updates 必须是字典"}
+
+    # 白名单过滤
+    safe_updates = {}
+    rejected = []
+    for k, v in updates.items():
+        if k in _PROFILE_UPDATE_WHITELIST:
+            safe_updates[k] = v
+        else:
+            rejected.append(k)
+
+    # gender 合法性校验
+    if "gender" in safe_updates:
+        g = str(safe_updates["gender"]).lower().strip()
+        if g not in ("male", "female", ""):
+            rejected.append("gender")
+            safe_updates.pop("gender")
+        else:
+            safe_updates["gender"] = g
+
+    if not safe_updates:
+        return {
+            "success": False,
+            "updated_fields": [],
+            "rejected_fields": rejected,
+            "message": "没有可更新的合法字段",
+        }
+
+    ok = await update_user_info(user_id, safe_updates)
+    return {
+        "success": ok,
+        "updated_fields": list(safe_updates.keys()),
+        "rejected_fields": rejected,
+        "message": f"已更新 {len(safe_updates)} 个字段" + (f"，拒绝 {len(rejected)} 个非法字段" if rejected else ""),
+    }
+
+
 def format_profile_for_prompt(profile: Dict[str, Any]) -> str:
     """
     将用户档案格式化为Prompt可消费的文本

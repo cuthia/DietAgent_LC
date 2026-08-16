@@ -678,6 +678,88 @@ async function checkConn() {
   }
 }
 
+/* ==================== 天气 Chip（第四改进点） ==================== */
+const WEATHER_ICONS = {
+  "晴": "☀️", "多云": "⛅", "阴": "☁️",
+  "小雨": "🌦️", "中雨": "🌧️", "大雨": "🌧️", "暴雨": "⛈️",
+  "雷阵雨": "⛈️", "小雪": "🌨️", "中雪": "❄️", "大雪": "❄️",
+  "雾": "🌫️", "霾": "😷",
+};
+function _weatherIcon(w) {
+  if (!w) return "🌤️";
+  for (const k of Object.keys(WEATHER_ICONS)) if (w.includes(k)) return WEATHER_ICONS[k];
+  return "🌤️";
+}
+async function loadWeather() {
+  const chip = $("#weather-chip");
+  if (!chip) return;
+  const userStr = localStorage.getItem(K.USER);
+  let region = "";
+  let userId = null;
+  try {
+    if (userStr) {
+      const u = JSON.parse(userStr);
+      region = u?.region || "";
+      userId = u?.id || null;
+    }
+  } catch(e) {}
+  const params = new URLSearchParams();
+  if (region) params.set("region", region);
+  if (userId) params.set("user_id", userId);
+
+  try {
+    const resp = await fetch(`${API_BASE}/agent/weather/current?${params.toString()}`, { method: "GET" });
+    if (!resp.ok) throw new Error("http " + resp.status);
+    const body = await resp.json();
+    const data = body.data || {};
+    if (!data.ok) throw new Error(data.fallback_reason || "未启用");
+    chip.classList.remove("hidden");
+    chip.classList.add("inline-flex");
+    $("#weather-icon").textContent = _weatherIcon(data.weather);
+    $("#weather-text").textContent = `${data.region || ""} ${data.weather || ""}`.trim();
+    $("#weather-temp").textContent = `${data.temperature ?? ""}${data.temperature !== undefined ? "℃" : ""}`;
+    chip.dataset.hints = JSON.stringify(data.diet_hints || []);
+    chip.dataset.weather = JSON.stringify({
+      region: data.region, temperature: data.temperature, weather: data.weather,
+      humidity: data.humidity, wind: data.wind,
+    });
+  } catch (e) {
+    chip.classList.add("hidden");
+    chip.classList.remove("inline-flex");
+  }
+}
+function showWeatherHints() {
+  const chip = $("#weather-chip");
+  if (!chip || chip.classList.contains("hidden")) return;
+  try {
+    const hints = JSON.parse(chip.dataset.hints || "[]");
+    const w = JSON.parse(chip.dataset.weather || "{}");
+    if (!hints.length) {
+      toast("当前天气暂无特殊饮食建议", "info");
+      return;
+    }
+    const title = `${_weatherIcon(w.weather)} ${w.region || ""} · ${w.temperature ?? ""}℃ ${w.weather || ""}${w.humidity ? ` · 湿度 ${w.humidity}%` : ""}`;
+    const body = hints.map(h => `<div class="weather-hint-item">• ${escapeHtml(h)}</div>`).join("");
+    const html = `
+      <div class="weather-hint-card" style="position:fixed;top:72px;right:16px;z-index:60;width:min(360px,calc(100vw-32px));
+        background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 12px 40px -12px rgba(2,32,80,.18);padding:14px 16px;font-size:13px;">
+        <div style="font-weight:600;color:#1F2329;margin-bottom:8px">${escapeHtml(title)}</div>
+        <div style="color:#4E5969;line-height:1.7">${body}</div>
+        <div style="color:#86909C;font-size:12px;margin-top:10px;padding-top:8px;border-top:1px dashed #EDF0F5">天气会自动参与食谱生成，可点击食谱右上角"查看"查看详情</div>
+      </div>`;
+    const old = document.getElementById("__weather_hint_popup");
+    if (old) old.remove();
+    const wrap = document.createElement("div");
+    wrap.id = "__weather_hint_popup";
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap);
+    const closeOnce = (e) => {
+      if (!wrap.contains(e.target)) { wrap.remove(); document.removeEventListener("click", closeOnce, true); }
+    };
+    setTimeout(() => document.addEventListener("click", closeOnce, true), 10);
+  } catch(e) { toast("天气卡片加载失败", "error"); }
+}
+
 /* ==================== 启动 ==================== */
 (function boot() {
   // 恢复登录态
@@ -700,4 +782,9 @@ async function checkConn() {
   $("#input").focus();
   checkConn();
   setInterval(checkConn, 30000);
+
+  // 天气初始化
+  loadWeather();
+  const chip = $("#weather-chip");
+  if (chip) chip.addEventListener("click", showWeatherHints);
 })();

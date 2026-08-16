@@ -115,7 +115,7 @@ async def search_knowledge(
 def format_knowledge_for_llm(docs: List[Dict[str, Any]]) -> str:
     """
     将检索结果格式化为LLM可消费的文本
-    
+
     功能：
     将检索到的文档列表转换为结构化文本，
     便于LLM理解和引用知识库内容。
@@ -153,6 +153,45 @@ def format_knowledge_for_llm(docs: List[Dict[str, Any]]) -> str:
         parts.append(f"[{i}] ({category}) {content}")
     
     return "\n".join(parts)
+
+
+# ========== LangChain @tool 包装（第一点改进配套） ==========
+
+from langchain_core.tools import tool as _lc_tool
+
+
+@_lc_tool
+async def rag_search_tool(query: str, category: str = "", top_k: int = 5) -> List[Dict[str, Any]]:
+    """
+    从膳食知识库检索相关文档（向量相似度检索）。
+
+    适用于 nutrition_qa / food_eval / diet_plan 等需要知识库支撑的意图：
+    输入查询关键词，返回 top_k 条最相关的文档（含 content/category/score）。
+
+    参数：
+        query: 检索关键词/问题，如 "糖尿病饮食禁忌"、"南瓜升糖指数"
+        category: 知识类别过滤（可选），支持：
+                  "nutrition" / "tcm_diet" / "taboo" / "recipes"
+                  空字符串表示不过滤
+        top_k: 返回结果数量，默认 5 条
+
+    返回：
+        文档列表，每个文档：
+        {
+            "id": "doc_id",
+            "content": "文档内容（前200字）",
+            "category": "知识类别",
+            "score": 0.95,
+            "metadata": {}
+        }
+    """
+    cat = category if category else None
+    docs = await search_knowledge(query=query, category=cat, top_k=top_k)
+    # 截断 content 便于 LLM 消费（避免单条过长）
+    for d in docs:
+        if len(d.get("content", "")) > 200:
+            d["content"] = d["content"][:200] + "..."
+    return docs
 
 
 # ======================== 文件内自测脚本 ========================

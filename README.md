@@ -1,28 +1,30 @@
-# 🥗 每日膳食搭配助手 (DietAgent)
+# 🥗 DietAgent · 每日膳食搭配助手
 
-> **AI 驱动的个性化营养顾问** - 基于 LangChain + RAG + Streamlit 构建的智能膳食搭配系统
+> **AI 驱动的个性化营养顾问** —— 基于 LangChain LCEL + RAG + FastAPI 构建的大模型个性化膳食搭配系统，综合用户慢病、忌口、地域、目标等约束生成单日 / 一周膳食方案。
 
 ---
 
 ## 📖 项目简介
 
-DietAgent 是一款基于大语言模型的智能膳食搭配助手，能够根据用户的健康档案（年龄、体重、慢病、忌口等），结合专业营养学知识库，生成个性化的膳食方案。
+DietAgent 是一款基于大语言模型的智能膳食搭配助手。它能够根据用户的健康档案（年龄、身高体重、慢病、食物忌口、地域、膳食目标等），结合本地专业营养学知识库（RAG），通过 6 步 Agent 流水线生成结构化、可校验、多日可扩展的膳食方案，并以 SSE 流式 + 打字机效果实时回传前端。
 
 ### ✨ 核心特性
 
-- 🤖 **AI 智能分析**：基于 LangChain LCEL 链式调用，多步骤处理用户饮食需求
-- 📚 **RAG 知识增强**：结合专业营养学知识库，解决 LLM 营养幻觉问题
-- 🎯 **多维度约束**：综合考虑慢病禁忌、食物忌口、地域饮食、膳食目标
-- 💬 **多轮对话**：支持追问、调整，保持上下文语义
-- 📊 **营养可视化**：清晰展示热量、蛋白质、碳水等营养成分配比
-- ⚡ **流式响应**：SSE 流式输出，实时展示 AI 处理进度
+- 🤖 **LangChain LCEL 链式编排**：信息收集 → 知识检索 → 约束构建 → 食谱生成 → 合规校验 → 结果输出，6 步流水线
+- 📚 **RAG 知识增强**：BGE 中文嵌入 + Chroma 向量库，支持 PDF/TXT/MD/DOCX 入库与 Top-K 语义检索，缓解 LLM 营养幻觉
+- 🎯 **多维度约束**：慢病禁忌、食物忌口/过敏、地域饮食偏好、膳食目标，结构化注入 Prompt
+- 📅 **多日方案**：支持单日 / 三天 / 五天 / 一周（7 天）食谱，JSON `days[]` 结构，含日均与周合计热量
+- 🛡️ **生成-校验-修正闭环**：方案生成后自动校验忌口/慢病食材，不合规自动二次修正；并对超长 JSON 做"宽松解析 + 结构兜底"，杜绝 `NoneType` 崩溃
+- 💬 **多轮对话记忆**：基于 Redis（或内存降级）的会话上下文，支持追问与方案调整
+- ⚡ **SSE 流式响应**：6 阶段进度事件 + 最终答复逐字打字机输出，实时反馈
+- 🖥️ **豆包风格前端**：纯 HTML + Tailwind v3 + 原生 JS，零构建依赖，Node 静态服务器即可启动
 
 ### 🎯 适用场景
 
 - 减脂塑形、增肌增重
-- 慢病饮食管理（糖尿病、高血压、痛风等）
-- 地域化膳食搭配（南方/北方/川渝/沿海等）
-- 特殊人群营养方案（孕期、老年、儿童等）
+- 慢病饮食管理（糖尿病、高血压、痛风、高血脂、胃炎等）
+- 地域化膳食搭配（南方 / 北方 / 川渝 / 沿海等）
+- 一周备餐方案生成
 
 ---
 
@@ -30,68 +32,77 @@ DietAgent 是一款基于大语言模型的智能膳食搭配助手，能够根�
 
 ### 技术栈
 
-| 层级 | 技术 | 版本 |
+| 层级 | 技术 | 说明 |
 |------|------|------|
-| 前端 | Streamlit | >= 1.30 |
-| 后端 | FastAPI | >= 0.100 |
-| Agent | LangChain | >= 0.2 |
-| 向量库 | Chroma | >= 0.4 |
-| 嵌入模型 | BAAI/bge-small-zh-v1.5 | - |
-| 数据库 | SQLite | - |
-| 缓存 | Redis (可选) | >= 6.0 |
-| LLM | DeepSeek / 通义千问 / GPT-4o | - |
+| 前端 | HTML + Tailwind CSS v3 + 原生 ES Modules | 豆包风格对话 UI，marked.js 渲染 Markdown，highlight.js 代码高亮 |
+| 前端服务 | Node.js 内置 http 模块 | 零依赖静态服务器（`server.js`，端口 8501） |
+| 后端框架 | FastAPI + Uvicorn | 异步 API，工厂模式应用，lifespan 启动初始化 |
+| Agent 编排 | LangChain LCEL | `Prompt \| LLM \| Parser` 链式调用，6 步流水线 |
+| LLM | DeepSeek-Chat（默认） | 兼容通义千问 / OpenAI，统一 `ChatOpenAI` 封装，YAML 切换 |
+| RAG 嵌入 | BAAI/bge-small-zh-v1.5 | 本地 SentenceTransformer，512 维，单例缓存 |
+| 向量库 | Chroma | 本地持久化（`./data/chroma`） |
+| 数据库 | MySQL（aiomysql 异步） | SQLAlchemy 2.0 async，表自动创建 |
+| 会话记忆 | Redis（可选）/ 内存降级 | `MemoryManager` 自动选择存储后端 |
+| 鉴权 | JWT + bcrypt | `python-jose` + `passlib` |
+| 日志 | loguru + InterceptHandler | 桥接标准库 `logging`，统一彩色控制台输出 |
 
 ### 系统架构图
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                  Streamlit 前端展示层                        │
-│  (对话界面 / 健康档案 / 知识库管理 / 历史记录)                │
+│        前端展示层 (HTML + Tailwind + 原生 JS)                │
+│  对话界面 / 健康档案 / 知识库管理 / 历史方案 / Markdown渲染    │
 └───────────────────────────┬─────────────────────────────────┘
-                            │ HTTP/SSE
+                            │ HTTP / SSE (fetch + ReadableStream)
 ┌───────────────────────────▼─────────────────────────────────┐
-│                  FastAPI API 网关层                          │
-│  (路由分发 / JWT鉴权 / 参数校验 / 异常处理)                   │
-└───────────────────────────┬─────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────┐
-│                  Agent 核心层 (LangChain LCEL)              │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │  6步处理流水线                                        │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────┐ │   │
-│  │  │信息收集  │→│知识检索  │→│约束构建  │→│食谱生成 │ │   │
-│  │  └─────────┘  └─────────┘  └─────────┘  └────────┘ │   │
-│  │         ↑                                    │         │   │
-│  │         │         ┌─────────┐                │         │   │
-│  │         └─────────│校验修正  │←──────────────┘         │   │
-│  │                   └─────────┘                         │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │
-│  │ LLM客户端    │  │ 工具集      │  │ 对话记忆(Redis)  │   │
-│  └─────────────┘  └─────────────┘  └─────────────────┘   │
+│              FastAPI API 网关层 (/api/*)                     │
+│  user / chat / knowledge / agent 路由 · JWT依赖注入 · CORS   │
+│  全局异常处理 · /health 探活 · SSE StreamingResponse         │
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│                  RAG 知识库层                                │
-│  (BGE嵌入 / Chroma向量库 / 文档检索)                         │
+│           Agent 核心层 (LangChain LCEL · DietAgentChain)     │
+│  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐    │
+│  │信息收集 │→│知识检索 │→│约束构建 │→│食谱生成 │→│方案校验 │    │
+│  └────────┘ └────────┘ └────────┘ └────────┘ └────┬───┘    │
+│       ↑   多轮记忆(user_id+session_id)      ↓ 修正 │        │
+│       └────────────── 结果输出(环节6) ←──────────┘        │
+│  LLMClient · JsonOutputParser+宽松解析 · _sanitize_diet_plan│
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│                  数据持久层                                  │
-│  (SQLite用户数据 / Redis会话缓存 / 本地知识库文档)           │
+│              RAG 知识库层 (KnowledgeService · Facade)        │
+│  DocumentLoader → TextSplitter → EmbeddingModel → Chroma     │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+┌───────────────────────────▼─────────────────────────────────┐
+│                   数据持久层                                 │
+│  MySQL(user/user_profile) · Redis(会话/方案) · Chroma(向量)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Agent 处理流程
+### Agent 6 步处理流程
 
 ```
-用户输入 → 信息收集 → 知识检索 → 约束构建 → 食谱生成 → 校验修正 → 结果输出
-            │          │          │          │          │          │
-            ▼          ▼          ▼          ▼          ▼          ▼
-        查询用户档案  检索相关知识  构建慢病/忌口  LCEL链式调用  检查合规性  流式返回结果
-                               地域约束      Prompt+LLM+Parser   生成修正方案
+用户输入
+  │
+  ▼
+①信息收集  —— 查询用户档案，判断信息是否完整；不完整则生成追问
+  │
+  ▼
+②知识检索  —— 结合慢病拼检索 query，从 Chroma 召回 Top-K 营养学片段
+  │
+  ▼
+③约束构建  —— 汇总慢病禁忌、食物忌口、地域特点、膳食目标成结构化约束
+  │
+  ▼
+④食谱生成  —— LCEL 链(Prompt|LLM)生成 JSON 方案；宽松解析+结构兜底；支持单日/多日
+  │
+  ▼
+⑤方案校验  —— validate_tool 检查忌口/慢病食材；不合规则 LLM revise 二次修正
+  │
+  ▼
+⑥结果输出  —— format_diet_plan_summary 渲染分天卡片；SSE 流式打字机回传
 ```
 
 ---
@@ -100,81 +111,60 @@ DietAgent 是一款基于大语言模型的智能膳食搭配助手，能够根�
 
 ```
 DietAgent_LC/
-├── backend/                              # 后端服务
-│   └── app/
-│       ├── main.py                       # FastAPI 入口
-│       ├── core/                         # 核心基础组件
-│       │   ├── config/                   # YAML配置文件
-│       │   │   ├── config.yaml           # 基础配置
-│       │   │   ├── config.dev.yaml       # 开发环境配置
-│       │   │   └── config.prod.yaml      # 生产环境配置
-│       │   ├── config_handler.py         # 配置加载器
-│       │   ├── security.py               # JWT鉴权
-│       │   ├── logger.py                 # 日志配置
-│       │   └── exception.py             # 异常处理
-│       ├── api/                          # API路由层
-│       │   ├── dependencies.py           # 依赖注入
-│       │   └── routers/
-│       │       ├── user.py               # 用户接口
-│       │       ├── agent.py              # Agent对话接口
-│       │       └── knowledge.py         # 知识库管理接口
-│       ├── agent/                        # Agent核心层
-│       │   ├── chain.py                  # LCEL链式调用编排
-│       │   ├── llm_client.py             # LLM统一封装
-│       │   ├── memory.py                 # 对话记忆管理
-│       │   ├── tools/                    # Agent工具集
-│       │   │   ├── user_tool.py          # 用户信息查询
-│       │   │   ├── rag_tool.py           # RAG检索工具
-│       │   │   ├── validate_tool.py      # 忌口/慢病校验
-│       │   │   └── region_tool.py        # 地域适配工具
-│       │   └── prompts/                  # Prompt模板
-│       │       ├── system_prompt.py      # 系统提示词
-│       │       └── diet_prompt.py        # 膳食生成提示词
-│       ├── rag/                          # RAG知识库层
-│       │   ├── embeddings.py             # BGE向量嵌入
-│       │   ├── vector_store.py           # Chroma向量库
-│       │   ├── retriever.py              # 检索器
-│       │   ├── document_loader.py        # 文档加载
-│       │   └── text_splitter.py          # 文本分块
-│       ├── db/                           # 数据持久层
-│       │   ├── models/user.py            # 用户模型
-│       │   └── crud/user_crud.py         # 用户CRUD
-│       ├── schemas/                      # Pydantic数据模型
-│       ├── services/                     # 业务逻辑层
-│       │   ├── agent_service.py          # Agent业务编排
-│       │   └── knowledge_service.py      # 知识库服务
-│       └── working_docs/                 # 开发文档
+├── backend/
+│   ├── app/
+│   │   ├── main.py                       # FastAPI 入口(工厂+lifespan+/health/CORS/异常)
+│   │   ├── core/                         # 核心基础
+│   │   │   ├── config/config.yaml        # 主配置(embedding/vector_store/llm/redis)
+│   │   │   ├── config_handler.py         # Pydantic 配置模型
+│   │   │   ├── config_api.py             # 全局 settings 实例
+│   │   │   ├── logger.py                 # loguru + InterceptHandler 日志桥接
+│   │   │   ├── security.py               # JWT 创建/校验 + bcrypt 密码
+│   │   │   └── exception.py              # 业务异常 + 全局异常处理器
+│   │   ├── api/
+│   │   │   ├── dependencies.py           # get_current_user 依赖注入
+│   │   │   └── routers/
+│   │   │       ├── __init__.py           # api_router 聚合(prefix=/api)
+│   │   │       ├── user.py               # 注册/登录/档案
+│   │   │       ├── chat.py               # 对话(第一阶段 mock)
+│   │   │       ├── knowledge.py          # 知识库上传/检索/删除/统计
+│   │   │       └── agent.py              # Agent 对话(同步+SSE流式)/档案/历史/校验
+│   │   ├── agent/                        # Agent 核心
+│   │   │   ├── chain.py                  # DietAgentChain 6步流水线 + process_stream
+│   │   │   ├── llm_client.py             # LLMClient 统一封装(DeepSeek/Qwen/OpenAI)
+│   │   │   ├── memory.py                 # MemoryManager(Redis/InMemory)
+│   │   │   ├── prompts/                  # system/diet/validate 提示词模板
+│   │   │   └── tools/                    # user_tool/rag_tool/validate_tool/region_tool
+│   │   ├── rag/                          # RAG 知识库
+│   │   │   ├── embeddings.py             # EmbeddingModel 单例(BGE)
+│   │   │   ├── vector_store.py           # Chroma 向量库封装
+│   │   │   ├── retriever.py              # 检索器
+│   │   │   ├── document_loader.py        # txt/md/pdf/docx 加载
+│   │   │   └── text_splitter.py          # 递归文本切分
+│   │   ├── services/
+│   │   │   ├── agent_service.py          # AgentService 业务编排
+│   │   │   └── knowledge_service.py      # KnowledgeService Facade(入库全流程)
+│   │   ├── db/
+│   │   │   ├── session.py                # MySQL 异步引擎+会话工厂+init_db
+│   │   │   ├── base.py                   # SQLAlchemy Base
+│   │   │   ├── models/user.py            # User / UserProfile 表
+│   │   │   └── crud/user_crud.py         # 用户 CRUD
+│   │   ├── schemas/                      # Pydantic 请求/响应模型
+│   │   ├── utils/ · tasks/
+│   │   └── working_docs/                 # 各阶段任务规划与实现说明
+│   └── data/
+│       ├── chroma/                       # Chroma 向量库持久化
+│       └── models/bge-small-zh-v1.5/     # 本地 BGE 嵌入模型
 │
-├── frontend/                             # 前端服务
-│   ├── app.py                            # Streamlit应用入口
-│   ├── config.py                         # 前端配置
-│   ├── requirements.txt                  # 前端依赖
-│   ├── pages/                            # 多页面
-│   │   ├── 1_💬_膳食对话.py              # AI对话页面
-│   │   ├── 2_👤_健康档案.py              # 用户档案页面
-│   │   ├── 3_📚_知识库.py                # 知识库管理页面
-│   │   └── 4_📊_历史记录.py              # 历史膳食记录
-│   ├── components/                       # UI组件库
-│   │   ├── chat_display.py               # 对话展示组件
-│   │   ├── diet_card.py                  # 膳食方案卡片
-│   │   ├── user_form.py                  # 用户档案表单
-│   │   └── nutrition_chart.py            # 营养图表组件
-│   ├── services/                         # 前端服务层
-│   │   └── api_client.py                 # 后端API客户端
-│   └── utils/                            # 工具函数
-│       └── helpers.py                    # 格式化辅助
+├── frontend/                             # 纯静态前端(无构建)
+│   ├── index.html                        # 豆包风格 UI + Tailwind CDN + 内联样式
+│   ├── app.js                            # 对话/SSE/档案/知识库交互逻辑
+│   ├── server.js                         # 零依赖 Node 静态服务器(端口8501)
+│   └── package.json
 │
-├── data/                                 # 数据目录
-│   ├── chroma/                           # Chroma向量库存储
-│   └── models/                           # 本地模型
-│       └── bge-small-zh-v1.5/            # BGE嵌入模型
-│
-├── docs/                                 # 项目文档
-│   ├── 项目架构方案2.0.md
-│   └── API文档.md
-│
-├── requirements.txt                      # 后端依赖
-└── README.md                             # 项目说明
+├── docs/                                 # 架构方案 / API 文档
+├── requirements.txt                      # Python 依赖(conda 环境导出)
+└── README.md
 ```
 
 ---
@@ -184,691 +174,246 @@ DietAgent_LC/
 ### 环境要求
 
 - Python 3.11+
-- pip 包管理器
-- （可选）Redis 6.0+（用于会话缓存，未安装则自动降级为内存存储）
+- Node.js 16+（仅用于前端静态服务器，亦可改用 `python -m http.server`）
+- MySQL 5.7+ / 8.0（必须，存储用户与档案）
+- Redis 6.0+（可选，未安装自动降级为内存存储）
 
-### 1. 克隆项目
-
-```bash
-git clone <repository-url>
-cd DietAgent_LC
-```
-
-### 2. 安装依赖
+### 1. 安装依赖
 
 ```bash
-# 安装后端依赖
-pip install -r requirements.txt
-
-# 安装前端依赖
-cd frontend
-pip install -r requirements.txt
-cd ..
+# 后端依赖（根目录 requirements.txt 为 conda 环境导出，核心依赖如下）
+pip install fastapi uvicorn[standard] langchain langchain-core langchain-openai \
+            langchain-chroma langchain-classic chromadb sentence-transformers \
+            sqlalchemy[asyncio] aiomysql pydantic pydantic-settings \
+            redis python-jose[cryptography] passlib[bcrypt] python-multipart \
+            pypdf docx2txt jieba rank-bm25 loguru pyyaml
 ```
 
-### 3. 配置环境
+### 2. 配置
 
-#### 3.1 配置 LLM API Key
-
-编辑 `backend/app/core/config/config.yaml`：
+#### 2.1 LLM 配置（`backend/app/core/config/config.yaml`）
 
 ```yaml
 llm:
-  type: deepseek                    # 支持: deepseek / qwen / openai
-  api_key: "your-api-key"           # 或使用环境变量: ${LLM_API_KEY}
+  type: deepseek              # deepseek / qwen / openai
+  api_key: "your-api-key"     # DeepSeek API Key
   base_url: "https://api.deepseek.com"
   model: "deepseek-chat"
   temperature: 0.7
-  max_tokens: 4096
+  max_tokens: 8192            # 7天食谱JSON较长，4096易截断
+  timeout: 180                # 生成长JSON需60~120s
 ```
 
-**支持的 LLM 提供商**：
+| 类型 | base_url | model 示例 |
+|------|----------|-----------|
+| `deepseek` | https://api.deepseek.com | deepseek-chat |
+| `qwen` | https://dashscope.aliyuncs.com/compatible-mode/v1 | qwen-plus |
+| `openai` | https://api.openai.com | gpt-4o |
 
-| 类型 | 说明 | base_url |
-|------|------|----------|
-| `deepseek` | 深度求索（推荐） | https://api.deepseek.com |
-| `qwen` | 通义千问 | https://dashscope.aliyuncs.com |
-| `openai` | GPT-4o | https://api.openai.com |
+#### 2.2 嵌入模型与向量库
 
-**使用环境变量**（推荐）：
+默认使用本地 BGE 模型，路径 `backend/data/models/bge-small-zh-v1.5/`。如需下载：
 
 ```bash
-# Windows PowerShell
-$env:LLM_API_KEY = "your-api-key"
-
-# Linux/Mac
-export LLM_API_KEY="your-api-key"
+# HuggingFace 镜像
+huggingface-cli download BAAI/bge-small-zh-v1.5 \
+  --local-dir backend/data/models/bge-small-zh-v1.5
+# 或 ModelScope
+python -c "from modelscope import snapshot_download; \
+  snapshot_download('BAAI/bge-small-zh-v1.5', cache_dir='backend/data/models')"
 ```
 
-#### 3.2 配置 Redis（可选）
+向量库默认 Chroma，持久化目录 `./data/chroma`（见 `config.yaml` 的 `vector_store.chroma.persist_dir`）。
 
-如果需要 Redis 会话缓存，编辑 `config.yaml`：
+#### 2.3 数据库（MySQL）
 
-```yaml
-redis:
-  host: localhost
-  port: 6379
-  db: 0
-  password: ""
-```
-
-**安装 Redis**（Windows）：
-
-```bash
-# 方式1: Docker
-docker run -d --name redis -p 6379:6379 redis:7
-
-# 方式2: 下载 Windows 版 Redis
-# 访问 https://github.com/tporadowski/redis/releases
-```
-
-**注意**：如果不安装 Redis，系统会自动降级为内存存储，功能不受影响（重启后会话丢失）。
-
-#### 3.3 配置 JWT Secret
-
-```yaml
-jwt:
-  secret_key: "your-secret-key"     # 建议使用随机字符串
-  algorithm: "HS256"
-  expire_minutes: 1440              # Token有效期（24小时）
-```
-
-**生成 Secret Key**：
-
-```bash
-python -c "import secrets; print(secrets.token_hex(32))"
-```
-
-#### 3.4 配置向量嵌入模型
-
-默认使用本地 BGE 模型，路径：`data/models/bge-small-zh-v1.5/`
-
-如果需要下载：
-
-```bash
-# 使用 huggingface-cli 下载
-huggingface-cli download BAAI/bge-small-zh-v1.5 --local-dir data/models/bge-small-zh-v1.5
-
-# 或使用 modelscope
-python -c "from modelscope import snapshot_download; snapshot_download('BAAI/bge-small-zh-v1.5', cache_dir='data/models')"
-```
-
-#### 3.5 配置数据库（MySQL）
-
-后端默认使用 MySQL，连接配置位于 `backend/app/db/session.py`：
+`backend/app/db/session.py` 中配置连接串：
 
 ```python
-ASYNC_DATABASE_URL = "mysql+aiomysql://root:yzt998666@localhost:3306/dietapp?charset=utf8"
+ASYNC_DATABASE_URL = "mysql+aiomysql://root:你的密码@localhost:3306/dietapp?charset=utf8"
 ```
 
-首次使用前请确保：
-
-1. 已安装并启动 MySQL（5.7+ 或 8.0）
-2. 创建数据库 `dietapp`（字符集 utf8mb4）：
+首次启动前创建数据库：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS dietapp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-3. 如需修改账号密码或库名，直接编辑 `backend/app/db/session.py` 中的 `ASYNC_DATABASE_URL`。
-4. 数据表会在后端首次启动时由 `init_db()` 自动创建（`Base.metadata.create_all`），无需手动建表。
+数据表（`user`、`user_profile`）由 `init_db()` 在后端启动时通过 `Base.metadata.create_all` 自动创建，无需手动建表。
 
-### 4. 启动服务
-
-#### 4.1 启动后端服务
-
-```bash
-cd backend/app
-python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-启动成功后会看到 `Uvicorn running on http://0.0.0.0:8000`。
-MySQL 未启动或连接失败时，登录/注册接口会卡住或返回 500，请先排查数据库。
-
-#### 4.2 启动前端服务（另开终端）
-
-前端为纯静态实现（HTML + Tailwind v3 + 原生 ES modules，无构建依赖）。
-有两种方式启动：
-
-**方式 A：Python 静态服务器（推荐，连真实后端用）**
-
-```bash
-cd frontend
-python -m http.server 8501
-```
-
-然后浏览器打开 http://localhost:8501/ 。
-前端默认连 `http://localhost:8000`，启动后会自动 `GET /health` 探活，
-顶部徽标会显示"已连接后端"（绿色）或"mock 演示"（琥珀色，后端不通时自动用本地 mock 流式回复）。
-
-**方式 B：直接双击 HTML 文件（离线 / 快速演示用）**
-
-直接双击 `frontend/index.html`（模块化版）或 `frontend/_standalone_singlefile.html`（单文件版）。
-由于 `file://` 协议下浏览器会限制 ES module 加载和 CORS，**此方式只能跑 mock 演示**，
-不能连真实后端。需要连真实后端请用方式 A。
-
-> ⚠️ 前端调用后端 `/api/v1/agent/chat/stream`、`/api/v1/user/login` 等接口属于跨域请求。
-> 如遇 CORS 报错，请在后端 `main.py` 的 CORSMiddleware `allow_origins` 中加入前端地址
-> （例如 `http://localhost:8501`），或用 nginx/caddy 做同域反向代理。
-
-#### 4.3 访问地址
-
-| 服务 | 地址 | 说明 |
-|------|------|------|
-| 前端 UI | http://localhost:8501 | 豆包风格 AI 对话界面 |
-| 后端 API 文档 | http://localhost:8000/docs | Swagger UI，可测试所有接口 |
-| 健康检查 | http://localhost:8000/health | 后端存活探活（前端启动时自动调用） |
-| Agent 健康检查 | http://localhost:8000/agent/health | Agent 服务状态 |
-
-#### 4.4 Docker 启动（预留）
-
-> ⚠️ Docker 配置即将提供，敬请期待
-
-```bash
-# 构建镜像
-docker build -t dietagent-backend ./backend
-
-# 启动容器
-docker compose up -d
-```
-
----
-
-## 📚 API 接口文档
-
-### 通用响应格式
-
-```json
-{
-  "success": true,
-  "message": "操作成功",
-  "data": {}
-}
-```
-
-### 用户认证
-
-#### 用户注册
-
-```
-POST /api/user/register
-```
-
-```json
-// 请求
-{
-  "username": "string",
-  "password": "string"
-}
-
-// 响应
-{
-  "success": true,
-  "data": {
-    "user_id": 1,
-    "token": "jwt-token"
-  }
-}
-```
-
-#### 用户登录
-
-```
-POST /api/user/login
-```
-
-```json
-// 请求
-{
-  "username": "string",
-  "password": "string"
-}
-
-// 响应
-{
-  "success": true,
-  "data": {
-    "user_id": 1,
-    "token": "jwt-token"
-  }
-}
-```
-
-### Agent 对话
-
-#### 同步对话
-
-```
-POST /api/agent/chat
-```
-
-```json
-// 请求
-{
-  "user_id": 1,
-  "message": "给我设计一份减脂餐",
-  "session_id": "optional-session-id"
-}
-
-// 响应
-{
-  "success": true,
-  "data": {
-    "message": "为您定制减脂餐方案...",
-    "diet_plan": { ... },
-    "session_id": "session-id",
-    "needs_info": false
-  }
-}
-```
-
-#### 流式对话（SSE）
-
-```
-POST /api/agent/chat/stream
-```
-
-**SSE 事件格式**：
-
-```
-data: {"stage": "collect_info", "status": "start", "message": "正在收集用户信息..."}
-data: {"stage": "collect_info", "status": "complete", "message": "用户信息收集完成"}
-data: {"stage": "retrieve_knowledge", "status": "start", "message": "正在检索知识库..."}
-data: {"stage": "generate_diet", "status": "start", "message": "正在生成膳食方案..."}
-data: {"stage": "output", "status": "complete", "message": "处理完成", "data": {...}}
-data: {"done": true}
-```
-
-#### 获取用户档案
-
-```
-GET /api/agent/user/{user_id}/profile
-```
-
-#### 更新用户档案
-
-```
-PUT /api/agent/user/{user_id}/profile
-```
-
-```json
-// 请求
-{
-  "age": 25,
-  "gender": "male",
-  "height": 170,
-  "weight": 65,
-  "chronic_disease": "糖尿病",
-  "food_taboo": "海鲜,花生",
-  "region": "北方",
-  "diet_goal": "减脂塑形"
-}
-```
-
-#### 获取对话历史
-
-```
-GET /api/agent/user/{user_id}/history?max_messages=20
-```
-
-#### 获取膳食方案历史
-
-```
-GET /api/agent/user/{user_id}/diet-history?limit=10
-```
-
-#### 清空对话历史
-
-```
-DELETE /api/agent/user/{user_id}/history?session_id=default
-```
-
-### 知识库管理
-
-#### 上传文档
-
-```
-POST /api/knowledge/upload
-Content-Type: multipart/form-data
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| file | File | 是 | 支持 TXT/MD/PDF/DOCX 格式 |
-| category | String | 否 | 文档分类 |
-
-#### 检索文档
-
-```
-POST /api/knowledge/search
-```
-
-```json
-// 请求
-{
-  "query": "糖尿病饮食",
-  "top_k": 5
-}
-```
-
-#### 删除文档
-
-```
-DELETE /api/knowledge/{doc_id}
-```
-
-#### 获取统计信息
-
-```
-GET /api/knowledge/stats
-```
-
----
-
-## 🔧 配置详解
-
-### 完整配置文件示例
-
-`backend/app/core/config/config.yaml`：
+#### 2.4 Redis（可选）
 
 ```yaml
-# ======================== 服务配置 ========================
-server:
-  host: "0.0.0.0"
-  port: 8000
-  env: dev  # dev / prod
-
-# ======================== LLM配置 ========================
-llm:
-  type: deepseek                    # deepseek / qwen / openai
-  api_key: ${LLM_API_KEY}            # 支持环境变量
-  base_url: "https://api.deepseek.com"
-  model: "deepseek-chat"
-  temperature: 0.7                   # 生成温度，0-1，越高越随机
-  max_tokens: 4096                  # 最大生成token数
-
-# ======================== Redis配置 ========================
 redis:
   host: localhost
   port: 6379
   db: 0
   password: ""
-
-# ======================== 向量库配置 ========================
-vector_store:
-  type: chroma                      # chroma / milvus
-  chroma:
-    persist_dir: "./data/chroma"
-  milvus:                           # 生产环境预留
-    host: localhost
-    port: 19530
-    collection_name: diet_knowledge
-
-# ======================== 嵌入模型配置 ========================
-embedding:
-  model: "BAAI/bge-small-zh-v1.5"
-  device: "cpu"                     # cpu / cuda
-  local_path: "./data/models/bge-small-zh-v1.5"
-  hf_endpoint: "https://hf-mirror.com"
-  offline: false
-
-# ======================== 数据库配置 ========================
-database:
-  type: sqlite                      # sqlite / postgresql
-  sqlite:
-    path: "./data/diet_agent.db"
-  postgresql:                       # 生产环境预留
-    host: localhost
-    port: 5432
-    database: diet_agent
-    user: postgres
-    password: ""
-
-# ======================== JWT配置 ========================
-jwt:
-  secret_key: ${JWT_SECRET_KEY}
-  algorithm: "HS256"
-  expire_minutes: 1440
-
-# ======================== 日志配置 ========================
-logging:
-  level: INFO
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 ```
 
-### 环境变量占位符
+未安装 Redis 时，`MemoryManager` 自动降级为内存存储（`InMemoryStore`），功能不受影响，重启后会话丢失。
 
-配置文件支持 `${ENV_VAR:default_value}` 格式：
+#### 2.5 JWT Secret
 
-```yaml
-llm:
-  api_key: ${LLM_API_KEY}           # 必须设置
-jwt:
-  secret_key: ${JWT_SECRET_KEY}     # 必须设置
-redis:
-  password: ${REDIS_PASSWORD:}     # 可选，默认空
-```
-
-### 开发/生产环境切换
-
-```yaml
-# config.yaml (基础配置)
-llm:
-  type: deepseek
-  temperature: 0.7
-
-# config.dev.yaml (开发环境覆盖)
-server:
-  port: 8000
-llm:
-  temperature: 0.8                   # 开发环境更有创造性
-
-# config.prod.yaml (生产环境覆盖)
-server:
-  port: 8001
-llm:
-  temperature: 0.3                   # 生产环境更稳定
-```
-
-设置环境变量切换：
+在 `backend/app/core/config_handler.py` / `core/security.py` 中配置 JWT 密钥。生成随机密钥：
 
 ```bash
-# 开发环境（默认）
-$env:ENV = "dev"
-
-# 生产环境
-$env:ENV = "prod"
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
+
+### 3. 启动服务
+
+#### 3.1 启动后端（端口 8000）
+
+```bash
+cd backend/app
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# 或直接：python main.py
+```
+
+启动成功后控制台显示 `服务启动成功，环境：dev，端口：8000`，并完成数据库建表与 `MemoryManager` 预热。
+
+#### 3.2 启动前端（端口 8501，另开终端）
+
+```bash
+cd frontend
+node server.js          # 或 npm run dev
+```
+
+浏览器打开 http://localhost:8501/ 。
+
+> 前端默认连 `http://localhost:8000`，启动后会自动 `GET /health` 探活，顶部徽标显示"已连接后端"（绿色）或"mock 演示"（琥珀色，后端不通时自动用本地 mock 流式回复，便于离线演示）。
+
+#### 3.3 访问地址
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| 前端 UI | http://localhost:8501 | 豆包风格 AI 对话界面 |
+| 后端 Swagger | http://localhost:8000/docs | API 文档（dev 环境） |
+| 健康检查 | http://localhost:8000/health | 服务 + Redis 状态 |
+| Agent 健康 | http://localhost:8000/api/agent/health | Agent 服务状态 |
 
 ---
 
-## 📦 依赖清单
+## 📚 API 接口文档
 
-### 后端依赖 (requirements.txt)
+所有接口统一前缀 `/api`，分为 user / chat / knowledge / agent 四组。
+
+### 用户模块 `/api/user`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/user/register` | 注册（username/password） |
+| POST | `/api/user/login` | 登录，返回 JWT |
+| GET | `/api/user/profile` | 获取当前用户档案（需 JWT） |
+| PUT | `/api/user/profile` | 更新档案（age/gender/height/weight/chronic_disease/food_taboo/region/diet_goal 等） |
+
+### Agent 模块 `/api/agent`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/agent/chat` | 同步膳食咨询 |
+| POST | `/api/agent/chat/stream` | SSE 流式膳食咨询（6 阶段进度 + 打字机） |
+| GET/PUT | `/api/agent/user/{user_id}/profile` | 获取/更新用户档案 |
+| GET | `/api/agent/user/{user_id}/history` | 对话历史（max_messages / session_id） |
+| POST | `/api/agent/user/{user_id}/diet-history` | 保存膳食方案 |
+| GET | `/api/agent/user/{user_id}/diet-history` | 膳食方案历史（limit） |
+| DELETE | `/api/agent/user/{user_id}/history` | 清空对话历史 |
+| POST | `/api/agent/validate` | 校验膳食方案合规性 |
+| GET | `/api/agent/health` | Agent 健康检查 |
+
+**SSE 事件格式**（`/api/agent/chat/stream`）：
 
 ```
-fastapi>=0.100
-uvicorn[standard]>=0.20
-sqlalchemy>=2.0
-pydantic>=2.0
-python-jose[cryptography]>=3.3
-passlib[bcrypt]>=1.7
-langchain>=0.2
-langchain-community>=0.0.10
-chromadb>=0.4
-sentence-transformers>=2.2
-PyYAML>=6.0
-redis>=5.0
-python-multipart>=0.0.5
-python-docx>=1.0
-PyPDF2>=3.0
+data: {"stage":"collect_info","status":"start","message":"正在收集用户信息..."}
+data: {"stage":"retrieve_knowledge","status":"complete","message":"知识检索完成","results":5}
+data: {"stage":"finalize","status":"stream","chunk":"为您定制..."}
+data: {"stage":"output","status":"complete","data":{...完整方案...}}
+data: {"done": true}
 ```
 
-### 前端依赖 (frontend/requirements.txt)
+### 知识库模块 `/api/knowledge`（均需 JWT）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/knowledge/upload` | 上传文档（file + category，支持 txt/md/pdf/docx） |
+| POST | `/api/knowledge/batch` | 批量上传目录（dir_path + category） |
+| GET | `/api/knowledge/search` | 语义检索（query + top_k + category） |
+| GET | `/api/knowledge/list` | 文档列表（按文件聚合） |
+| DELETE | `/api/knowledge/{doc_id}` | 删除指定文档 |
+| DELETE | `/api/knowledge/clear` | 清空知识库 |
+| GET | `/api/knowledge/stats` | 统计信息（总数 + 分类计数） |
+
+### 对话模块 `/api/chat`
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat/send` | 第一阶段 mock 对话（验证接口通路） |
+
+---
+
+## 🔄 知识库入库流程
+
+`KnowledgeService`（Facade 模式）统一编排入库全流程，详见 [knowledge_service.py](backend/app/services/knowledge_service.py)：
 
 ```
-streamlit>=1.30
-plotly>=5.18
-pandas>=2.0
-requests>=2.31
+上传文件 → DocumentLoader 解析(txt/md/pdf/docx)
+         → TextSplitter 递归切分(按 chunk_size/overlap)
+         → EmbeddingModel.embed() 批量向量化(BGE 512维)
+         → ChromaVectorStore.add_documents() 入库(含元数据:source/category)
+         → 控制台输出分批入库日志(批大小/耗时/总数)
 ```
+
+检索时 `Retriever` 基于 `EmbeddingModel.embed_single(query)` 生成查询向量，在 Chroma 中做 Top-K 相似度检索，可选 category 过滤。
+
+---
+
+## 🧠 Agent 健壮性设计
+
+针对大模型生成长 JSON 时的常见问题，[chain.py](backend/app/agent/chain.py) 做了多层防护：
+
+1. **两层 JSON 解析**：先 `JsonOutputParser.parse()`，失败则 `_loose_parse_llm_json()` 三层兜底（剥离 ```` ```json ```` 代码块 → `raw_decode` 截断自然语言尾巴 → 统计括号差自动补 `]}`）。
+2. **结构兜底** `_sanitize_diet_plan()`：无论输入是 `None`/`list`/残缺 dict，输出必定是含全部关键 key 的标准 dict，杜绝后续 `.get()` 的 `NoneType` 崩溃。
+3. **多日方案**：`days[]` 数组结构，支持单日 / 三天 / 五天 / 一周；`format_diet_plan_summary` 按天渲染分天卡片（日均 + 周合计热量）。
+4. **生成-校验-修正闭环**：`validate_tool` 检查忌口/慢病食材，不合规自动 `revise` prompt 二次生成。
+5. **超时与重试**：LLM `timeout=180s`、`max_tokens=8192`，覆盖 7 天长 JSON 生成耗时。
 
 ---
 
 ## 🛠️ 常见问题
 
-### 1. 启动时提示 "LLM 未初始化"
+### 1. 启动提示 "LLM 未初始化"
+LLM API Key 未配置或无效。检查 `config.yaml` 的 `llm.api_key`，或确认网络可访问 `api.deepseek.com`。
 
-**原因**：LLM API Key 未配置或无效
+### 2. MySQL 连接失败 / 登录接口 500
+确认 MySQL 已启动、`dietapp` 库已创建、`db/session.py` 连接串账号密码正确。表会在后端首次启动时自动建。
 
-**解决**：
-```bash
-# 设置环境变量
-$env:LLM_API_KEY = "your-api-key"
+### 3. "模型文件不存在" / 嵌入加载失败
+BGE 模型未下载到 `backend/data/models/bge-small-zh-v1.5/`，按上文"嵌入模型"小节下载。
 
-# 或编辑 config.yaml
-llm:
-  api_key: "your-api-key"
-```
+### 4. `EmbeddingModel ... unexpected keyword argument`
+早期版本调用 `EmbeddingModel(model=...)` 报错，现已兼容 `model` / `model_name` 两种参数名，并忽略多余关键字参数。
 
-### 2. 启动时提示 "Redis 连接失败"
+### 5. "一周减脂食谱"生成失败 / 超时
+长 JSON 生成需 60~120s。确认 `config.yaml` 中 `llm.timeout: 180`、`max_tokens: 8192`；并确认已部署最新的宽松解析 + 兜底逻辑。
 
-**原因**：Redis 未启动
+### 6. 控制台看不到业务调试日志
+项目用 loguru 输出日志，并通过 `InterceptHandler` 桥接标准库 `logging`。若某模块日志丢失，确认其使用 `logging.getLogger(__name__)` 且 `setup_logger()` 已在启动时调用。
 
-**解决**：
-```bash
-# 方式1: 启动 Redis
-redis-server
+### 7. 前端 SSE 无响应 / CORS 报错
+确认后端已启动且 `main.py` 的 CORSMiddleware `allow_origins` 包含前端地址（默认 `["*"]`）。前端默认连 `http://localhost:8000`。
 
-# 方式2: 使用 Docker
-docker start redis
+### 8. 数据存储位置
 
-# 方式3: 忽略（自动降级为内存存储）
-# 系统会自动降级，功能不受影响
-```
-
-### 3. 向量库报错 "模型文件不存在"
-
-**原因**：BGE 嵌入模型未下载
-
-**解决**：
-```bash
-# 下载模型
-huggingface-cli download BAAI/bge-small-zh-v1.5 --local-dir data/models/bge-small-zh-v1.5
-```
-
-### 4. 前端访问接口报 404
-
-**原因**：后端服务未启动或端口不对
-
-**解决**：
-```bash
-# 确认后端已启动
-curl http://localhost:8000/agent/health
-
-# 检查前端配置
-# frontend/config.py
-BACKEND_URL = "http://localhost:8000"
-```
-
-### 5. SSE 流式输出无响应
-
-**原因**：网络超时或 LLM API 响应慢
-
-**解决**：
-- 检查网络连接
-- 降低 `max_tokens` 配置
-- 增加超时时间
-
-### 6. 如何更换 LLM 提供商
-
-**解决**：编辑 `config.yaml`
-
-```yaml
-# 切换到通义千问
-llm:
-  type: qwen
-  api_key: "your-qwen-api-key"
-  model: "qwen-plus"
-
-# 切换到 GPT-4o
-llm:
-  type: openai
-  api_key: "your-openai-api-key"
-  model: "gpt-4o"
-```
-
-### 7. 如何导入自定义知识库
-
-**解决**：
-1. 访问前端知识库页面：http://localhost:8501
-2. 上传 TXT/MD/PDF/DOCX 文件
-3. 选择文档分类
-4. 点击"上传并向量化"
-
-### 8. 数据存在哪里
-
-| 数据类型 | 存储位置 | 说明 |
-|---------|---------|------|
-| 用户数据 | `backend/app/data/diet_agent.db` | SQLite 数据库 |
-| 向量库 | `backend/app/data/chroma/` | Chroma 向量库 |
-| 对话缓存 | Redis 或内存 | 会话历史 |
-| 上传文档 | 前端上传，向量化后存入 Chroma | 原始文档不保留 |
-
----
-
-## 📝 开发指南
-
-### 项目路线图
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| 第一阶段 | 项目骨架、用户认证、数据库 | ✅ 已完成 |
-| 第二阶段 | RAG知识库、向量嵌入、检索器 | ✅ 已完成 |
-| 第三阶段 | LangChain Agent核心开发 | ✅ 已完成 |
-| 第四阶段 | Streamlit前端开发 | ✅ 已完成 |
-| 第五阶段 | 联调测试、文档完善 | 🚧 进行中 |
-| 第六阶段 | 优化与简历包装 | ⏳ 待开发 |
-
-### 文档索引
-
-- [项目架构方案 2.0](docs/项目架构方案2.0.md)
-- [API 接口文档](docs/API文档.md)
-- [第三阶段任务规划](backend/app/working_docs/第三阶段任务规划.md)
-- [第三阶段实现说明](backend/app/working_docs/第三阶段任务实现说明.md)
-- [第四阶段任务规划](backend/app/working_docs/第四阶段任务规划.md)
-- [第四阶段实现说明](backend/app/working_docs/第四阶段任务实现说明.md)
-
----
-
-## 🎯 面试亮点
-
-1. **LangChain LCEL 链式调用**：展示多步骤 Agent 编排能力，区别于简单的单轮问答
-2. **RAG + Agent 融合**：结合知识库检索与 Agent 自主决策，解决 LLM 营养幻觉问题
-3. **SSE 流式响应**：前端实时展示 Agent 处理进度，区别于普通聊天窗口
-4. **Streamlit 快速原型**：展示全栈快速落地能力，5 天从后端到前端一站式实现
-5. **Redis 会话记忆**：实现多轮对话上下文管理，支持用户长期偏好存储
-6. **工程化设计**：配置分离、接口抽象、环境隔离，符合工业级开发标准
-
-### 技术关键词
-
-```
-LangChain | LCEL | RAG | BGE嵌入 | Chroma向量库 | Redis会话记忆 
-| FastAPI | Streamlit | SSE流式 | Pydantic | SQLAlchemy | JWT鉴权
-```
+| 数据类型 | 位置 |
+|---------|------|
+| 用户与档案 | MySQL `dietapp` 库（user / user_profile 表） |
+| 向量库 | `backend/data/chroma/` |
+| 会话/方案缓存 | Redis（或内存降级） |
+| 本地嵌入模型 | `backend/data/models/bge-small-zh-v1.5/` |
 
 ---
 
 ## 📄 License
 
 本项目仅供学习和面试使用。
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 PR！
-
----
-
-**Made with ❤️ by DietAgent Team**
