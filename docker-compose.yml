@@ -1,0 +1,75 @@
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-dietapp123}
+      MYSQL_DATABASE: dietapp
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD:-dietapp123}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      ENV: prod
+      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:-dietapp123}@mysql:3306/dietapp?charset=utf8
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-please-change-me}
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ""
+      AMAP_WEATHER_KEY: ${AMAP_WEATHER_KEY:-}
+      SQL_ECHO: "0"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - chroma_data:/app/backend/app/data/chroma
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8501:8501"
+
+volumes:
+  mysql_data:
+  redis_data:
+  chroma_data:

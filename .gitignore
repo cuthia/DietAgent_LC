@@ -1,3 +1,6 @@
-docs/准备
-
-backend/app/core/config/config.dev.yaml
+.env
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+backend/data/cache/

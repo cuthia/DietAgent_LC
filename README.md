@@ -263,6 +263,18 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 ### 3. 启动服务
 
+
+#### docker一键启动
+```commandline
+cd "E:\Programs\Python Programs\DietAgent_LC"
+
+docker compose up -d              # 启动
+docker compose logs -f backend    # 看后端日志
+docker compose down               # 停止，数据保留
+docker compose down -v            # 停止并清空 MySQL/Redis/Chroma 数据，慎用
+```
+
+
 #### 3.1 启动后端（端口 8000）
 
 ```bash
@@ -280,7 +292,7 @@ cd frontend
 node server.js          # 或 npm run dev
 ```
 
-浏览器打开 http://localhost:8501/ 。
+浏览器打开 http://127.0.0.1:8501/ 。
 
 > 前端默认连 `http://localhost:8000`，启动后会自动 `GET /health` 探活，顶部徽标显示"已连接后端"（绿色）或"mock 演示"（琥珀色，后端不通时自动用本地 mock 流式回复，便于离线演示）。
 

@@ -5,15 +5,19 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.ext.asyncio.session import AsyncSession
 from db.base import Base
+import os
 
 
 # .1 数据库连接
-ASYNC_DATABASE_URL = "mysql+aiomysql://root:yzt998666@localhost:3306/dietapp?charset=utf8"
+ASYNC_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "mysql+aiomysql://root:yzt998666@localhost:3306/dietapp?charset=utf8",
+)
 
 # 2. 创建异步数据库引擎
 async_engine = create_async_engine(
     ASYNC_DATABASE_URL,
-    echo=True,        # 打印执行的SQL语句，在生产环境中需要关闭
+    echo=os.getenv("SQL_ECHO", "0") == "1",  # 生产环境默认关闭 SQL 日志
     pool_size=10,     # 连接池常驻连接数量
     max_overflow=20   # 流量高峰额外扩容连接上限
 )

@@ -1,0 +1,10 @@
+# 生产环境配置：敏感信息统一通过环境变量注入
+llm:
+  api_key: "${DEEPSEEK_API_KEY:}"
+
+redis:
+  host: "${REDIS_HOST:redis}"
+  password: "${REDIS_PASSWORD:}"
+
+jwt:
+  secret_key: "${JWT_SECRET_KEY:}"

@@ -56,7 +56,7 @@ function renderDietPlan(plan) {
 }
 
 /* ==================== 状态 ==================== */
-const API_BASE = "http://localhost:8000";
+const API_BASE = (window.__DIETAGENT_API_BASE__ || "http://127.0.0.1:8000").replace(/\/$/, "");
 const K = { TOKEN:"dietagent_token", USER:"dietagent_user", SESSIONS:"dietagent_sessions", ACTIVE:"dietagent_active_session" };
 const state = {
   token: localStorage.getItem(K.TOKEN) || "",
